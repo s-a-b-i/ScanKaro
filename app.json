@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "ScanKaro",
+    "slug": "ScanKaro",
+    "scheme": "scankaro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ScanKaro needs access to your photos to import and save document scans.",
+          "cameraPermission": "ScanKaro needs camera access to scan documents.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "ScanKaro needs camera access to scan documents.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "react-native-document-scanner-plugin",
+        {
+          "cameraPermission": "ScanKaro needs camera access to scan documents with live edge detection."
+        }
+      ]
+    ],
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ScanKaro needs camera access to scan documents.",
+        "NSPhotoLibraryUsageDescription": "ScanKaro needs access to your photos to import and save document scans."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.CAMERA"
+      ],
+      "package": "com.bytegens.ScanKaro"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
