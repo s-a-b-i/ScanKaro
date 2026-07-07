@@ -39,21 +39,34 @@ export function frameRectToCorners(rect: FrameRect): DocumentCorners {
   };
 }
 
-export function defaultDocumentCorners(width: number, height: number, insetRatio = 0.06): DocumentCorners {
+export function defaultDocumentCorners(
+  width: number,
+  height: number,
+  insetRatio = 0.06,
+  bottomSafeInset = 0,
+): DocumentCorners {
   const insetX = width * insetRatio;
   const insetY = height * insetRatio;
+  const maxY = Math.max(insetY, height - bottomSafeInset);
 
   return {
     topLeft: { x: insetX, y: insetY },
     topRight: { x: width - insetX, y: insetY },
-    bottomLeft: { x: insetX, y: height - insetY },
-    bottomRight: { x: width - insetX, y: height - insetY },
+    bottomLeft: { x: insetX, y: maxY - insetY },
+    bottomRight: { x: width - insetX, y: maxY - insetY },
   };
 }
 
-export function clampPoint(point: Point, width: number, height: number, padding = 8): Point {
+export function clampPoint(
+  point: Point,
+  width: number,
+  height: number,
+  padding = 8,
+  bottomSafeInset = 0,
+): Point {
+  'worklet';
   return {
     x: Math.min(width - padding, Math.max(padding, point.x)),
-    y: Math.min(height - padding, Math.max(padding, point.y)),
+    y: Math.min(height - Math.max(padding, bottomSafeInset), Math.max(padding, point.y)),
   };
 }

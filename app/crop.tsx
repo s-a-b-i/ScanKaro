@@ -117,6 +117,7 @@ export default function CropScreen() {
           imageUri={currentPageUri}
           filter={activeFilter}
           brightness={brightness}
+          bottomSafeInset={96}
         />
 
         <View className="absolute bottom-5 left-0 right-0 items-center px-4">

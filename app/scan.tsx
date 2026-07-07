@@ -87,7 +87,7 @@ export default function ScanScreen() {
     const uri = await pickScanImage();
     if (!uri) return;
     addPage(uri);
-    router.push('/crop');
+    router.push(batchMode ? '/export' : '/crop');
   };
 
   const handleClose = () => {

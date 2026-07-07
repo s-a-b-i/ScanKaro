@@ -1,5 +1,7 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, PanResponder, StyleSheet, View } from 'react-native';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import { LayoutChangeEvent, StyleSheet, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import { FilteredScanImage } from './FilteredScanImage';
 import {
@@ -13,6 +15,7 @@ import { getImageSizeFromUri } from '../../utils/documentScan';
 import { ScanFilter } from '../../utils/scanFilters';
 
 const HANDLE = 22;
+const HANDLE_PADDING = 12;
 const FRAME_COLOR = '#00685f';
 const HANDLE_COLOR = '#89f5e7';
 
@@ -20,6 +23,7 @@ type CropFrameEditorProps = {
   imageUri: string;
   filter: ScanFilter;
   brightness: number;
+  bottomSafeInset?: number;
 };
 
 type CornerKey = keyof DocumentCorners;
@@ -30,58 +34,76 @@ export type CropFrameEditorRef = {
   getImageCorners: () => DocumentCorners | null;
 };
 
+/** Corner handle — drag runs entirely on the UI thread via a shared value, no JS re-render per frame. */
 function CornerHandle({
   point,
-  onMove,
+  width,
+  height,
+  bottomSafeInset,
 }: {
-  point: Point;
-  onMove: (next: Point) => void;
+  point: SharedValue<Point>;
+  width: number;
+  height: number;
+  bottomSafeInset: number;
 }) {
-  const start = useRef(point);
+  const start = useSharedValue<Point>({ x: 0, y: 0 });
 
-  const pan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          start.current = point;
-        },
-        onPanResponderMove: (_, gesture) => {
-          onMove({
-            x: start.current.x + gesture.dx,
-            y: start.current.y + gesture.dy,
-          });
-        },
-      }),
-    [onMove, point],
-  );
+  const pan = Gesture.Pan()
+    .onStart(() => {
+      start.value = { x: point.value.x, y: point.value.y };
+    })
+    .onUpdate((event) => {
+      point.value = clampPoint(
+        { x: start.value.x + event.translationX, y: start.value.y + event.translationY },
+        width,
+        height,
+        HANDLE_PADDING,
+        bottomSafeInset,
+      );
+    });
+
+  const style = useAnimatedStyle(() => ({
+    left: point.value.x - HANDLE / 2,
+    top: point.value.y - HANDLE / 2,
+  }));
 
   return (
-    <View
-      {...pan.panHandlers}
-      style={[
-        styles.handle,
-        {
-          left: point.x - HANDLE / 2,
-          top: point.y - HANDLE / 2,
-        },
-      ]}
-    >
-      <View style={styles.handleInner} />
-    </View>
+    <GestureDetector gesture={pan}>
+      <Animated.View style={[styles.handle, style]}>
+        <View style={styles.handleInner} />
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
 export const CropFrameEditor = forwardRef<CropFrameEditorRef, CropFrameEditorProps>(
-  function CropFrameEditor({ imageUri, filter, brightness }, ref) {
+  function CropFrameEditor({ imageUri, filter, brightness, bottomSafeInset = 0 }, ref) {
     const [size, setSize] = useState({ width: 0, height: 0 });
     const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
-    const [corners, setCorners] = useState<DocumentCorners | null>(null);
+    const [ready, setReady] = useState(false);
+
+    const topLeft = useSharedValue<Point>({ x: 0, y: 0 });
+    const topRight = useSharedValue<Point>({ x: 0, y: 0 });
+    const bottomLeft = useSharedValue<Point>({ x: 0, y: 0 });
+    const bottomRight = useSharedValue<Point>({ x: 0, y: 0 });
+
+    const corners: Record<CornerKey, SharedValue<Point>> = {
+      topLeft,
+      topRight,
+      bottomLeft,
+      bottomRight,
+    };
 
     useImperativeHandle(ref, () => ({
       getImageCorners: () => {
-        if (!corners || !imageSize || !size.width || !size.height) return null;
-        return mapViewCornersToImage(corners, imageSize.width, imageSize.height, size.width, size.height);
+        if (!ready || !imageSize || !size.width || !size.height) return null;
+        const current: DocumentCorners = {
+          topLeft: topLeft.value,
+          topRight: topRight.value,
+          bottomLeft: bottomLeft.value,
+          bottomRight: bottomRight.value,
+        };
+        return mapViewCornersToImage(current, imageSize.width, imageSize.height, size.width, size.height);
       },
     }));
 
@@ -102,75 +124,88 @@ export const CropFrameEditor = forwardRef<CropFrameEditorRef, CropFrameEditorPro
 
     useEffect(() => {
       if (size.width <= 0 || size.height <= 0) return;
-      setCorners(defaultDocumentCorners(size.width, size.height, 0.05));
-    }, [size.height, size.width, imageUri]);
+      const initial = defaultDocumentCorners(size.width, size.height, 0.05, bottomSafeInset);
+      topLeft.value = initial.topLeft;
+      topRight.value = initial.topRight;
+      bottomLeft.value = initial.bottomLeft;
+      bottomRight.value = initial.bottomRight;
+      setReady(true);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [size.height, size.width, imageUri, bottomSafeInset]);
 
-    const updateCorner = useCallback(
-      (key: CornerKey, next: Point) => {
-        if (!size.width || !size.height) return;
-        setCorners((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            [key]: clampPoint(next, size.width, size.height, 12),
-          };
-        });
-      },
-      [size.height, size.width],
-    );
-
-    const displayCorners =
-      corners ?? (size.width > 0 ? defaultDocumentCorners(size.width, size.height, 0.05) : null);
-
-    if (!displayCorners) {
-      return (
-        <View style={styles.container} onLayout={onLayout}>
-          <FilteredScanImage uri={imageUri} filter={filter} brightness={brightness} style={styles.imageFill} />
-        </View>
-      );
-    }
-
-    const { topLeft, topRight, bottomLeft, bottomRight } = displayCorners;
-    const topEdgeY = (topLeft.y + topRight.y) / 2;
-    const bottomEdgeY = (bottomLeft.y + bottomRight.y) / 2;
-    const leftEdgeX = (topLeft.x + bottomLeft.x) / 2;
-    const rightEdgeX = (topRight.x + bottomRight.x) / 2;
+    const maskTopStyle = useAnimatedStyle(() => {
+      const topEdgeY = (topLeft.value.y + topRight.value.y) / 2;
+      return { top: 0, left: 0, right: 0, height: Math.max(0, topEdgeY) };
+    });
+    const maskBottomStyle = useAnimatedStyle(() => {
+      const bottomEdgeY = (bottomLeft.value.y + bottomRight.value.y) / 2;
+      return { top: bottomEdgeY, left: 0, right: 0, bottom: 0 };
+    });
+    const maskLeftStyle = useAnimatedStyle(() => {
+      const topEdgeY = (topLeft.value.y + topRight.value.y) / 2;
+      const bottomEdgeY = (bottomLeft.value.y + bottomRight.value.y) / 2;
+      const leftEdgeX = (topLeft.value.x + bottomLeft.value.x) / 2;
+      return { top: topEdgeY, left: 0, width: Math.max(0, leftEdgeX), height: bottomEdgeY - topEdgeY };
+    });
+    const maskRightStyle = useAnimatedStyle(() => {
+      const topEdgeY = (topLeft.value.y + topRight.value.y) / 2;
+      const bottomEdgeY = (bottomLeft.value.y + bottomRight.value.y) / 2;
+      const rightEdgeX = (topRight.value.x + bottomRight.value.x) / 2;
+      return { top: topEdgeY, left: rightEdgeX, right: 0, height: bottomEdgeY - topEdgeY };
+    });
+    const borderBoxStyle = useAnimatedStyle(() => {
+      const topEdgeY = (topLeft.value.y + topRight.value.y) / 2;
+      const bottomEdgeY = (bottomLeft.value.y + bottomRight.value.y) / 2;
+      const leftEdgeX = (topLeft.value.x + bottomLeft.value.x) / 2;
+      const rightEdgeX = (topRight.value.x + bottomRight.value.x) / 2;
+      return {
+        top: topEdgeY,
+        left: leftEdgeX,
+        width: rightEdgeX - leftEdgeX,
+        height: bottomEdgeY - topEdgeY,
+      };
+    });
+    const bracketTLStyle = useAnimatedStyle(() => ({ top: topLeft.value.y - 2, left: topLeft.value.x - 2 }));
+    const bracketTRStyle = useAnimatedStyle(() => ({ top: topRight.value.y - 2, left: topRight.value.x - 18 }));
+    const bracketBLStyle = useAnimatedStyle(() => ({ top: bottomLeft.value.y - 18, left: bottomLeft.value.x - 2 }));
+    const bracketBRStyle = useAnimatedStyle(() => ({
+      top: bottomRight.value.y - 18,
+      left: bottomRight.value.x - 18,
+    }));
 
     return (
       <View style={styles.container} onLayout={onLayout}>
         <FilteredScanImage uri={imageUri} filter={filter} brightness={brightness} style={styles.imageFill} />
 
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <View style={[styles.mask, { top: 0, left: 0, right: 0, height: Math.max(0, topEdgeY) }]} />
-          <View style={[styles.mask, { top: bottomEdgeY, left: 0, right: 0, bottom: 0 }]} />
-          <View style={[styles.mask, { top: topEdgeY, left: 0, width: Math.max(0, leftEdgeX), height: bottomEdgeY - topEdgeY }]} />
-          <View style={[styles.mask, { top: topEdgeY, left: rightEdgeX, right: 0, height: bottomEdgeY - topEdgeY }]} />
+        {ready && size.width > 0 ? (
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            <Animated.View style={[styles.mask, maskTopStyle]} />
+            <Animated.View style={[styles.mask, maskBottomStyle]} />
+            <Animated.View style={[styles.mask, maskLeftStyle]} />
+            <Animated.View style={[styles.mask, maskRightStyle]} />
 
-          <View
-            style={[
-              styles.borderBox,
-              {
-                top: topEdgeY,
-                left: leftEdgeX,
-                width: rightEdgeX - leftEdgeX,
-                height: bottomEdgeY - topEdgeY,
-              },
-            ]}
-          />
+            <Animated.View style={[styles.borderBox, borderBoxStyle]} />
 
-          <View style={[styles.bracket, { top: topLeft.y - 2, left: topLeft.x - 2, borderTopWidth: 3, borderLeftWidth: 3 }]} />
-          <View style={[styles.bracket, { top: topRight.y - 2, left: topRight.x - 18, borderTopWidth: 3, borderRightWidth: 3 }]} />
-          <View style={[styles.bracket, { top: bottomLeft.y - 18, left: bottomLeft.x - 2, borderBottomWidth: 3, borderLeftWidth: 3 }]} />
-          <View style={[styles.bracket, { top: bottomRight.y - 18, left: bottomRight.x - 18, borderBottomWidth: 3, borderRightWidth: 3 }]} />
-
-          {CORNER_KEYS.map((key) => (
-            <CornerHandle
-              key={key}
-              point={displayCorners[key]}
-              onMove={(next) => updateCorner(key, next)}
+            <Animated.View style={[styles.bracket, { borderTopWidth: 3, borderLeftWidth: 3 }, bracketTLStyle]} />
+            <Animated.View style={[styles.bracket, { borderTopWidth: 3, borderRightWidth: 3 }, bracketTRStyle]} />
+            <Animated.View
+              style={[styles.bracket, { borderBottomWidth: 3, borderLeftWidth: 3 }, bracketBLStyle]}
             />
-          ))}
-        </View>
+            <Animated.View
+              style={[styles.bracket, { borderBottomWidth: 3, borderRightWidth: 3 }, bracketBRStyle]}
+            />
+
+            {CORNER_KEYS.map((key) => (
+              <CornerHandle
+                key={key}
+                point={corners[key]}
+                width={size.width}
+                height={size.height}
+                bottomSafeInset={bottomSafeInset}
+              />
+            ))}
+          </View>
+        ) : null}
       </View>
     );
   },

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Image, ImageProps, LayoutChangeEvent, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import Svg, { Defs, FeColorMatrix, Filter, Image as SvgImage } from 'react-native-svg';
 
@@ -13,7 +13,7 @@ type FilteredScanImageProps = {
   resizeMode?: ImageProps['resizeMode'];
 };
 
-export function FilteredScanImage({
+function FilteredScanImageInner({
   uri,
   filter,
   brightness,
@@ -63,6 +63,8 @@ export function FilteredScanImage({
     </View>
   );
 }
+
+export const FilteredScanImage = memo(FilteredScanImageInner);
 
 const styles = StyleSheet.create({
   container: {
