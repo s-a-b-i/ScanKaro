@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup rules. Everything is backed up as before EXCEPT the Locker folder
+  (files/locker/), so private Locker files never leave the phone in a Google backup.
+  The Locker screen says "Not included in backups"; this makes that true.
+-->
+<data-extraction-rules>
+  <cloud-backup>
+    <exclude domain="file" path="locker/" />
+  </cloud-backup>
+  <device-transfer>
+    <exclude domain="file" path="locker/" />
+  </device-transfer>
+</data-extraction-rules>

@@ -1,6 +1,7 @@
 <resources>
-  <color name="splashscreen_background">#FFFFFF</color>
-  <color name="iconBackground">#E6F4FE</color>
-  <color name="colorPrimary">#023c69</color>
-  <color name="colorPrimaryDark">#ffffff</color>
+  <!-- Splash: the app's own background, so launch flows into Home without a colour jump. -->
+  <color name="splashscreen_background">#F2F3F7</color>
+  <color name="iconBackground">#131418</color>
+  <color name="colorPrimary">#1D1D1F</color>
+  <color name="colorPrimaryDark">#F2F3F7</color>
 </resources>

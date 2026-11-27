@@ -1,0 +1,21 @@
+diff --git a/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt b/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt
+index 9bd3c1b..a4e0b76 100644
+--- a/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt
++++ b/node_modules/react-native-pdf-thumbnail/android/src/main/java/org/songsterq/pdfthumbnail/PdfThumbnailModule.kt
+@@ -158,9 +158,14 @@ class PdfThumbnailModule(reactContext: ReactApplicationContext) :
+         if (pageWidth <= 0 || pageHeight <= 0) {
+           throw ThumbnailException("INVALID_FILE", "File $filePath, page $page has invalid dimensions")
+         }
++        // ScanKaro patch: render AT the requested size, not at most 1 px per PDF point
++        // (~72 dpi, blurry text). Upscaling is allowed up to MAX_SIDE px per side.
+         var scale = 1.0
+-        if (maxWidth > 0) scale = min(scale, maxWidth / pageWidth)
+-        if (maxHeight > 0) scale = min(scale, maxHeight / pageHeight)
++        if (maxWidth > 0 && maxHeight > 0) scale = min(maxWidth / pageWidth, maxHeight / pageHeight)
++        else if (maxWidth > 0) scale = maxWidth / pageWidth
++        else if (maxHeight > 0) scale = maxHeight / pageHeight
++        val maxSide = 4096.0
++        scale = min(scale, min(maxSide / pageWidth, maxSide / pageHeight))
+         // Same positive rounding as Math.round in JS and floor(x + 0.5) on iOS.
+         val width = maxOf(1, floor(pageWidth * scale + 0.5).toInt())
+         val height = maxOf(1, floor(pageHeight * scale + 0.5).toInt())

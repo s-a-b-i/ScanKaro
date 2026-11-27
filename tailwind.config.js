@@ -3,6 +3,10 @@ const palette = require('./constants/palette');
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ['./app/**/*.{js,jsx,ts,tsx}', './components/**/*.{js,jsx,ts,tsx}'],
+  // Light/dark comes from CSS variables (constants/theme.tsx), not `dark:` classes.
+  // 'class' stops NativeWind on web from throwing "Cannot manually set color scheme,
+  // as dark mode is type 'media'" at start-up.
+  darkMode: 'class',
   // Folder colors come from data in services/, which Tailwind does not scan.
   safelist: [
     'bg-primary-container',

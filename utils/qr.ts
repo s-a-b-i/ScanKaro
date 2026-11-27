@@ -38,11 +38,17 @@ export function qrPayload(kind: QrKind, f: QrFields): string {
     case 'link': {
       const url = t(f.url);
       if (!url) return '';
-      return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
+      // Keep a real scheme (https://…, mailto:…). "example.com:8080/x" or "localhost:3000"
+      // only look like one: without https:// scanners treat them as plain text, not links.
+      const hasScheme =
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^(mailto|tel|sms|smsto|geo|market|whatsapp|bitcoin):/i.test(url);
+      return hasScheme ? url : `https://${url}`;
     }
     case 'wifi': {
       if (!t(f.ssid)) return '';
       const sec = f.security ?? 'WPA';
+      // A secured network with no password can't be joined: wait for it (or "No password").
+      if (sec !== 'nopass' && !(f.password ?? '')) return '';
       const pass = sec === 'nopass' ? '' : `P:${wifiEscape(f.password ?? '')};`;
       return `WIFI:T:${sec};S:${wifiEscape(t(f.ssid))};${pass}${f.hidden ? 'H:true;' : ''};`;
     }

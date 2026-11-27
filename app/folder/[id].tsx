@@ -13,10 +13,12 @@ import { EmptyState, shadows } from '../../components/ui';
 import { useTheme } from '../../constants/theme';
 import { useApp } from '../../context/AppProvider';
 import { useDeleteWithUndo } from '../../hooks/useDeleteWithUndo';
+import { useStartScan } from '../../hooks/useStartScan';
 import { goBackOr } from '../../utils/navigation';
 
 export default function FolderDetailScreen() {
   const router = useRouter();
+  const startScan = useStartScan();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { documents, folders, toggleFavorite, renameFolder, deleteFolder } = useApp();
@@ -163,7 +165,7 @@ export default function FolderDetailScreen() {
 
       <View className="absolute left-0 right-0 items-center" style={{ bottom: Math.max(insets.bottom, 12) + 4 }}>
         <Pressable
-          onPress={() => router.push({ pathname: '/scan', params: { folderId: folder.id } })}
+          onPress={() => startScan({ folderId: folder.id })}
           className="h-14 flex-row items-center gap-2 rounded-full bg-primary px-7 active:opacity-85"
           style={[shadows.lifted, { shadowColor: '#000000', shadowOpacity: 0.3 }]}
         >

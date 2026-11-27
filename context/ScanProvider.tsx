@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { DocumentCorners } from '../utils/documentFrame';
-import { saveDraft, ScanDraft } from '../utils/scanDraft';
+import { clearDraft, discardDraft, newDraftId, saveDraft, ScanDraft } from '../utils/scanDraft';
 
 type ScanSession = {
+  /** The draft file this scan is mirrored to; set when the first page is added. */
+  draftId: string | null;
   pages: string[];
   /** Detected page edges for imported photos, keyed by page uri (image pixels). */
   pageCorners: Record<string, DocumentCorners>;
@@ -25,12 +27,18 @@ type ScanContextValue = ScanSession & {
   updatePage: (index: number, uri: string, corners?: DocumentCorners | null) => void;
   removePage: (index: number) => void;
   setActiveIndex: (index: number) => void;
+  /** Starts a fresh session. The current scan, if it has pages, stays on Home as a draft. */
   reset: () => void;
-  /** Loads an unsaved scan from a previous run (crash recovery). */
+  /** Ends the session after its pages were saved as a document: removes its draft. */
+  finish: () => void;
+  /** Ends the session and throws its pages away (no draft left behind). */
+  discard: () => void;
+  /** Loads an unsaved scan (a draft listed on Home) to continue it. */
   restoreDraft: (draft: ScanDraft) => void;
 };
 
 const initialSession: ScanSession = {
+  draftId: null,
   pages: [],
   pageCorners: {},
   activeIndex: 0,
@@ -44,27 +52,40 @@ const ScanContext = createContext<ScanContextValue | null>(null);
 export function ScanProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<ScanSession>(initialSession);
 
-  // Mirror the session to disk for crash recovery. Skipped on mount, so an empty
-  // session at launch does not erase the previous run's draft before it is offered.
-  const mounted = useRef(false);
+  // Mirror the session to its draft file, so it shows on Home and survives a crash.
+  // A session without a draft id (fresh, no pages yet) writes nothing, and a draft
+  // that was only opened (not changed) is not re-saved, so its "edited" time stays true.
+  const restored = useRef<ScanDraft | null>(null);
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
+    if (!session.draftId) return;
+    const r = restored.current;
+    if (
+      r &&
+      r.id === session.draftId &&
+      r.pages === session.pages &&
+      r.pageCorners === session.pageCorners &&
+      r.title === session.title &&
+      r.documentId === session.documentId &&
+      r.folderId === session.folderId
+    ) {
       return;
     }
-    saveDraft({
+    restored.current = null;
+    saveDraft(session.draftId, {
       pages: session.pages,
       pageCorners: session.pageCorners,
       documentId: session.documentId,
       title: session.title,
       folderId: session.folderId,
     });
-  }, [session.pages, session.pageCorners, session.documentId, session.title, session.folderId]);
+  }, [session.draftId, session.pages, session.pageCorners, session.documentId, session.title, session.folderId]);
 
   const restoreDraft = useCallback((draft: ScanDraft) => {
+    restored.current = draft;
     setSession({
+      draftId: draft.id,
       pages: draft.pages,
-      pageCorners: draft.pageCorners ?? {},
+      pageCorners: draft.pageCorners,
       activeIndex: 0,
       documentId: draft.documentId,
       title: draft.title,
@@ -75,6 +96,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
   const addPage = useCallback((uri: string, corners?: DocumentCorners | null) => {
     setSession((prev) => ({
       ...prev,
+      draftId: prev.draftId ?? newDraftId(),
       pages: [...prev.pages, uri],
       pageCorners: corners ? { ...prev.pageCorners, [uri]: corners } : prev.pageCorners,
       activeIndex: prev.pages.length,
@@ -119,6 +141,16 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     setSession(initialSession);
   }, []);
 
+  const finish = useCallback(() => {
+    if (session.draftId) clearDraft(session.draftId);
+    setSession(initialSession);
+  }, [session.draftId]);
+
+  const discard = useCallback(() => {
+    if (session.draftId) discardDraft(session.draftId);
+    setSession(initialSession);
+  }, [session.draftId]);
+
   const value = useMemo(
     () => ({
       ...session,
@@ -133,9 +165,11 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
       setFolderId,
       setDocumentId,
       reset,
+      finish,
+      discard,
       restoreDraft,
     }),
-    [session, addPage, updatePage, removePage, setActiveIndex, setTitle, setFolderId, setDocumentId, reset, restoreDraft],
+    [session, addPage, updatePage, removePage, setActiveIndex, setTitle, setFolderId, setDocumentId, reset, finish, discard, restoreDraft],
   );
 
   return <ScanContext.Provider value={value}>{children}</ScanContext.Provider>;

@@ -15,14 +15,15 @@ import { LoadingOverlay } from '../components/LoadingOverlay';
 import { useScan } from '../context/ScanProvider';
 import { ID_PHOTO_SIZES, IdPhotoSize, makeIdPhoto, makeIdSheet } from '../utils/idPhoto';
 import { goBackOr } from '../utils/navigation';
-import { printPages } from '../utils/print';
+import { imageAtTrueSize } from '../utils/pdf';
+import { printPdf } from '../utils/print';
 
 type Result = { photo: string; sheet: string; copies: number; size: IdPhotoSize };
 
 export default function IdPhotoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { addPage, reset } = useScan();
+  const { addPage, reset, setTitle } = useScan();
   const [size, setSize] = useState<IdPhotoSize>(ID_PHOTO_SIZES[0]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -61,13 +62,20 @@ export default function IdPhotoScreen() {
 
   const share = async () => {
     if (!result) return;
-    await Sharing.shareAsync(result.photo, { mimeType: 'image/jpeg', dialogTitle: 'ID photo' });
+    try {
+      await Sharing.shareAsync(result.photo, { mimeType: 'image/jpeg', dialogTitle: 'ID photo' });
+    } catch (e) {
+      Alert.alert('Could not share', e instanceof Error ? e.message : 'Please try again.');
+    }
   };
 
   const print = async () => {
     if (!result) return;
     try {
-      await printPages([result.sheet], `ID photos (${result.size.label})`, 1);
+      // The 4 x 6 inch sheet at its real size on A4, so each photo prints at its true
+      // size (35 x 45 mm etc.) instead of being stretched to fill the paper.
+      const pdf = await imageAtTrueSize(result.sheet, 4, 6, `ID photos (${result.size.label})`);
+      await printPdf(pdf.uri);
     } catch (e) {
       Alert.alert('Could not print', e instanceof Error ? e.message : 'Please try again.');
     }
@@ -78,6 +86,7 @@ export default function IdPhotoScreen() {
     if (!result) return;
     reset();
     addPage(result.sheet);
+    setTitle(`ID photos (${result.size.label})`);
     router.push({ pathname: '/enhance', params: { filter: 'original' } });
   };
 
@@ -144,6 +153,9 @@ export default function IdPhotoScreen() {
                   <Text className="font-inter-semibold text-[16px] text-on-surface">Print sheet</Text>
                 </Pressable>
               </View>
+              <Text className="text-center font-inter text-[13px] text-on-surface-variant">
+                When printing, choose 100% or "Actual size" so the photos come out at their real size.
+              </Text>
               <Pressable onPress={() => setResult(null)} className="h-12 items-center justify-center">
                 <Text className="font-inter-semibold text-[15px] text-on-surface-variant">Make another</Text>
               </Pressable>

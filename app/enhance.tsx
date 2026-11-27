@@ -71,6 +71,13 @@ export default function EnhanceScreen() {
   const { pages, activeIndex, pageCount, setActiveIndex, updatePage, addPage } = useScan();
   const pageUri = pages[activeIndex] ?? null;
 
+  // Open on page 1. Adding pages leaves the last one active, so a 10-page scan would
+  // otherwise open on page 10. (Runs once: returning here from Crop keeps the page.)
+  useEffect(() => {
+    if (pages.length > 1) setActiveIndex(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const params = useLocalSearchParams<{ filter?: string }>();
   const initialFilter = ENHANCE_FILTERS.some((f) => f.key === params.filter)
     ? (params.filter as EnhanceFilter)
@@ -170,7 +177,7 @@ export default function EnhanceScreen() {
       if (!page) return;
       addPage(page.uri, page.corners);
       // Gallery photos still need their page cropped; scanner pages are ready.
-      if (page.corners) router.push('/crop');
+      if (page.corners) router.push({ pathname: '/crop', params: { from: 'enhance' } });
     } finally {
       setBusy(null);
     }
@@ -373,7 +380,7 @@ export default function EnhanceScreen() {
         <GlassBackground radius={28} variant="media" topOnly />
         <ToolButton icon="rotate-left" label="Left" onPress={() => void rotate(-90)} disabled={!!busy} />
         <ToolButton icon="rotate-right" label="Right" onPress={() => void rotate(90)} disabled={!!busy} />
-        <ToolButton icon="crop" label="Crop" onPress={() => router.push('/crop')} disabled={!!busy} />
+        <ToolButton icon="crop" label="Crop" onPress={() => router.push({ pathname: '/crop', params: { from: 'enhance' } })} disabled={!!busy} />
         <ToolButton
           icon="add-photo-alternate"
           label="Add page"

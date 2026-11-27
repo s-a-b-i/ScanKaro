@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,12 +14,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BrandMark } from '../components/BrandMark';
 import { Icon } from '../components/Icon';
 import { shadows } from '../components/ui';
 import { appConfig } from '../constants/config';
 import { useApp } from '../context/AppProvider';
 import { useGoogleAuth } from '../hooks/useGoogleAuth';
 import { authService } from '../services';
+import { goBackOr } from '../utils/navigation';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -32,15 +34,21 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
 
-  useEffect(() => {
-    if (authReady && profile) {
-      router.replace('/(tabs)');
-    }
-  }, [authReady, profile, router]);
-
-  const handleAuthSuccess = useCallback(() => {
-    router.replace('/(tabs)');
+  // Signing in is optional: this screen opens on top of the app and closes back to it.
+  // Once only: a sign-in both resolves the form and updates the profile, and two
+  // back() calls would also close the screen underneath.
+  const closed = useRef(false);
+  const close = useCallback(() => {
+    if (closed.current) return;
+    closed.current = true;
+    goBackOr(router, '/(tabs)');
   }, [router]);
+
+  useEffect(() => {
+    if (authReady && profile) close();
+  }, [authReady, profile, close]);
+
+  const handleAuthSuccess = close;
 
   const handleAuthError = useCallback((error: unknown) => {
     Alert.alert('Authentication failed', error instanceof Error ? error.message : 'Please try again.');
@@ -105,20 +113,34 @@ export default function LoginScreen() {
       className="flex-1 bg-background"
       style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
     >
+      <View className="h-14 flex-row items-center px-3">
+        <Pressable
+          onPress={close}
+          accessibilityRole="button"
+          accessibilityLabel="Close, continue without an account"
+          hitSlop={6}
+          className="h-11 w-11 items-center justify-center rounded-full active:bg-surface-container"
+        >
+          <Icon name="close" size={24} className="text-on-surface" />
+        </Pressable>
+      </View>
       <ScrollView
         contentContainerClassName="flex-grow items-center justify-center px-margin-mobile py-stack-lg"
         keyboardShouldPersistTaps="handled"
       >
         <View className="w-full max-w-[440px] gap-stack-lg">
           <View className="items-center">
-            <View className="mb-4 h-16 w-16 items-center justify-center rounded-3xl bg-primary">
-              <Icon name="document-scanner" size={34} className="text-on-primary" />
+            <View className="mb-4">
+              <BrandMark size={72} />
             </View>
             <Text className="font-inter-bold text-large-title text-on-surface">ScanKaro</Text>
             <Text className="mt-2 max-w-[320px] text-center font-inter text-body-lg text-on-surface-variant">
               {isLogin
                 ? 'Your documents, digitized and organized in seconds.'
                 : 'Join ScanKaro today and transform your workflow.'}
+            </Text>
+            <Text className="mt-2 max-w-[320px] text-center font-inter text-body-sm text-on-surface-variant">
+              An account is optional. Everything works without one.
             </Text>
           </View>
 

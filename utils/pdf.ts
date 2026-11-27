@@ -68,9 +68,15 @@ async function savePdf(doc: PDFDocument, title: string): Promise<PdfFile> {
 }
 
 function writePdf(bytes: Uint8Array, title: string, pages: number): PdfFile {
-  const name = pdfFileName(title);
-  const file = new File(outputDir(), name);
-  if (file.exists) file.delete();
+  // Never replace an earlier result: "Merged 27 Nov.pdf", then "Merged 27 Nov (2).pdf".
+  const first = pdfFileName(title);
+  const stem = first.replace(/\.pdf$/i, '');
+  let name = first;
+  let file = new File(outputDir(), name);
+  for (let n = 2; file.exists; n++) {
+    name = `${stem} (${n}).pdf`;
+    file = new File(outputDir(), name);
+  }
   file.create();
   file.write(bytes);
   return { uri: file.uri, name, pages, size: bytes.length };
@@ -86,8 +92,18 @@ export async function protectPdf(uri: string, password: string, title: string): 
 
 async function loadPdf(uri: string) {
   const bytes = await new File(uri).bytes();
-  // Some scanners write PDFs with an "encrypted" flag but no password; still readable.
-  return PDFDocument.load(bytes, { ignoreEncryption: true });
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  } catch {
+    throw new Error("This file isn't a readable PDF. It may be damaged or incomplete.");
+  }
+  // pdf-lib cannot decrypt, even when only an owner password is set (bank statements
+  // often are): copied pages come out blank and added text garbled. Say so instead.
+  if (doc.isEncrypted) {
+    throw new Error('This PDF is password-protected. Remove the password first, then try again.');
+  }
+  return doc;
 }
 
 /** Builds one PDF with one image per page, in order. */
@@ -384,6 +400,29 @@ export async function imagesToSheets(imageUris: string[], title: string, perShee
     sheet!.drawImage(image, { x: cellX + (cw - w) / 2, y: cellTop - ch + (ch - h) / 2, width: w, height: h });
   }
   return savePdf(doc, `${title} (print)`);
+}
+
+/**
+ * One image placed at its true physical size (e.g. a 4 x 6 inch ID-photo sheet), centred
+ * on an A4 page. Unlike imagesToSheets it never scales to fill the paper, so a 35 x 45 mm
+ * photo prints at 35 x 45 mm.
+ */
+export async function imageAtTrueSize(
+  imageUri: string,
+  widthInches: number,
+  heightInches: number,
+  title: string,
+): Promise<PdfFile> {
+  const doc = await PDFDocument.create();
+  doc.setTitle(title);
+  doc.setProducer('ScanKaro');
+  const [pageW, pageH] = PAGE_POINTS.a4;
+  const w = widthInches * 72;
+  const h = heightInches * 72;
+  const image = await doc.embedJpg(await new File(imageUri).bytes());
+  const page = doc.addPage([pageW, pageH]);
+  page.drawImage(image, { x: (pageW - w) / 2, y: (pageH - h) / 2, width: w, height: h });
+  return savePdf(doc, title);
 }
 
 export type PdfInfo = { title: string; author: string; subject: string; keywords: string };

@@ -14,7 +14,7 @@ import type { IdTokenResult } from 'firebase/auth';
 
 import { UserProfile } from '../../types';
 import { IAuthService } from '../interfaces';
-import { firebaseAuth } from './config';
+import { getFirebaseAuth } from './config';
 import { getAuthErrorMessage } from './errors';
 
 const DEFAULT_AVATAR =
@@ -32,19 +32,19 @@ function mapFirebaseUser(user: User): UserProfile {
 
 export const firebaseAuthService: IAuthService = {
   onAuthStateChanged(callback) {
-    return firebaseOnAuthStateChanged(firebaseAuth, (user) => {
+    return firebaseOnAuthStateChanged(getFirebaseAuth(), (user) => {
       callback(user ? mapFirebaseUser(user) : null);
     });
   },
 
   async getProfile() {
-    const user = firebaseAuth.currentUser;
+    const user = getFirebaseAuth().currentUser;
     return user ? mapFirebaseUser(user) : null;
   },
 
   async signIn(email, password) {
     try {
-      const { user } = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      const { user } = await signInWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
       return mapFirebaseUser(user);
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
@@ -53,11 +53,11 @@ export const firebaseAuthService: IAuthService = {
 
   async signUp(email, password, displayName) {
     try {
-      const { user } = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      const { user } = await createUserWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
       if (displayName?.trim()) {
         await updateProfile(user, { displayName: displayName.trim() });
       }
-      return mapFirebaseUser(firebaseAuth.currentUser ?? user);
+      return mapFirebaseUser(getFirebaseAuth().currentUser ?? user);
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
     }
@@ -66,7 +66,7 @@ export const firebaseAuthService: IAuthService = {
   async signInWithGoogle({ idToken, accessToken }) {
     try {
       const credential = GoogleAuthProvider.credential(idToken, accessToken);
-      const { user } = await signInWithCredential(firebaseAuth, credential);
+      const { user } = await signInWithCredential(getFirebaseAuth(), credential);
       return mapFirebaseUser(user);
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
@@ -75,18 +75,18 @@ export const firebaseAuthService: IAuthService = {
 
   async resetPassword(email) {
     try {
-      await sendPasswordResetEmail(firebaseAuth, email.trim());
+      await sendPasswordResetEmail(getFirebaseAuth(), email.trim());
     } catch (error) {
       throw new Error(getAuthErrorMessage(error));
     }
   },
 
   async signOut() {
-    await firebaseSignOut(firebaseAuth);
+    await firebaseSignOut(getFirebaseAuth());
   },
 
   async deleteAccount() {
-    const user = firebaseAuth.currentUser;
+    const user = getFirebaseAuth().currentUser;
     if (!user) throw new Error('You are not signed in.');
     try {
       await deleteUser(user);
@@ -100,7 +100,7 @@ export const firebaseAuthService: IAuthService = {
   },
 
   async getIdToken() {
-    const user = firebaseAuth.currentUser;
+    const user = getFirebaseAuth().currentUser;
     if (!user) return null;
     return await user.getIdToken();
   },

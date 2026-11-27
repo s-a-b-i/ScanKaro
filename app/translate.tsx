@@ -87,12 +87,14 @@ export default function TranslateScreen() {
       setBusy('Reading text…');
       const parts: string[] = [];
       for (let i = 0; i < pages.length; i++) {
+        if (pages.length > 1) setBusy(`Reading page ${i + 1} of ${pages.length}…`);
         const r = await TextRecognition.recognize(pages[i], from.script);
         const text = orderBlocks(r.blocks)
           .map((b) => b.text.trim())
           .filter(Boolean)
           .join('\n\n');
-        parts.push(pages.length > 1 ? `— Page ${i + 1} —\n\n${text}` : text);
+        // No marker for empty pages: markers alone must not count as "text found".
+        if (text) parts.push(pages.length > 1 ? `— Page ${i + 1} —\n\n${text}` : text);
       }
       const read = parts.join('\n\n').trim();
       setSource(read);

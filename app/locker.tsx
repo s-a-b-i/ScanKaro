@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GlassBackground } from '../components/Glass';
 import { Icon } from '../components/Icon';
+import { LoadingOverlay } from '../components/LoadingOverlay';
 import { PinPad } from '../components/lock/PinPad';
 import { useToast } from '../components/Toast';
 import { useTheme } from '../constants/theme';
@@ -33,6 +34,9 @@ import {
 } from '../services/locker';
 import { formatBytes } from '../utils/pdf';
 import { goBackOr } from '../utils/navigation';
+
+/** Lets the progress overlay paint before the synchronous file copies start. */
+const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 60));
 
 type IconName = ComponentProps<typeof Icon>['name'];
 type Stage = 'loading' | 'setup' | 'locked' | 'open';
@@ -65,6 +69,7 @@ export default function LockerScreen() {
   const [viewing, setViewing] = useState<LockerItem | null>(null);
   const [renaming, setRenaming] = useState<LockerItem | null>(null);
   const [newName, setNewName] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const refresh = useCallback(() => setItems(listLocker()), []);
 
@@ -161,7 +166,7 @@ export default function LockerScreen() {
   const addPhotos = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to move photos into the Locker.');
+      Alert.alert('Permission needed', 'Allow photo access to copy photos into the Locker.');
       return;
     }
     const picked = await whileAway(() => ImagePicker.launchImageLibraryAsync({
@@ -171,17 +176,41 @@ export default function LockerScreen() {
       quality: 1,
     }));
     if (picked.canceled) return;
-    const n = addToLocker(picked.assets.map((a) => ({ uri: a.uri, name: a.fileName, mimeType: a.mimeType ?? 'image/jpeg' })));
+    setAdding(true);
+    await nextFrame();
+    const { added: n, failed } = addToLocker(
+      picked.assets.map((a) => ({ uri: a.uri, name: a.fileName, mimeType: a.mimeType ?? 'image/jpeg' })),
+    );
+    setAdding(false);
     refresh();
-    toast.show(`${n} photo${n === 1 ? '' : 's'} added. Delete the originals from your gallery to keep them private.`);
+    reportAdded(n, failed, 'photo');
   };
 
   const addFiles = async () => {
     const picked = await whileAway(() => DocumentPicker.getDocumentAsync({ type: '*/*', multiple: true, copyToCacheDirectory: true }));
     if (picked.canceled) return;
-    const n = addToLocker(picked.assets.map((a) => ({ uri: a.uri, name: a.name, mimeType: a.mimeType })));
+    setAdding(true);
+    await nextFrame();
+    const { added: n, failed } = addToLocker(picked.assets.map((a) => ({ uri: a.uri, name: a.name, mimeType: a.mimeType })));
+    setAdding(false);
     refresh();
-    toast.show(`${n} file${n === 1 ? '' : 's'} added.`);
+    reportAdded(n, failed, 'file');
+  };
+
+  /** What was copied in; photos are copies, so remind to delete the gallery originals. */
+  const reportAdded = (n: number, failed: number, kind: 'photo' | 'file') => {
+    if (failed > 0) {
+      Alert.alert(
+        `${failed} ${kind}${failed === 1 ? '' : 's'} could not be added`,
+        `${n} added. The phone may be out of space, or the ${kind}${failed === 1 ? ' is' : 's are'} no longer available.`,
+      );
+      return;
+    }
+    toast.show(
+      kind === 'photo'
+        ? `${n} photo${n === 1 ? '' : 's'} copied in. Delete the originals from your gallery to keep them private.`
+        : `${n} file${n === 1 ? '' : 's'} copied in.`,
+    );
   };
 
   const add = () =>
@@ -300,6 +329,7 @@ export default function LockerScreen() {
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
+      <LoadingOverlay visible={adding} message="Adding to Locker…" />
       {header}
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 110 }}>
         <View className="mb-4 flex-row items-center gap-2 rounded-2xl bg-surface-container px-3.5 py-3">

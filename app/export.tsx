@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import * as Sharing from 'expo-sharing';
+
 import { useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,7 @@ import { useApp } from '../context/AppProvider';
 import { useScan } from '../context/ScanProvider';
 import { uploadScanPages } from '../services/uploadScan';
 import { imagesToPdf, PdfFileSize, sharePdf } from '../utils/pdf';
+import { imagesShareFile, shareImagesResult } from '../utils/pdfToImages';
 import { pageSizeFor } from '../utils/pageShape';
 import { clearTempFiles } from '../utils/tempFiles';
 import { goBackOr } from '../utils/navigation';
@@ -26,7 +27,7 @@ export default function ExportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { folders, createFolder, refreshDocuments, refreshFolders } = useApp();
-  const { pages, pageCount, title, folderId, documentId, setTitle, setFolderId, reset } = useScan();
+  const { pages, pageCount, title, folderId, documentId, setTitle, setFolderId, finish } = useScan();
 
   const [showFolders, setShowFolders] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
@@ -80,7 +81,7 @@ export default function ExportScreen() {
         documentId,
       });
       await Promise.all([refreshDocuments(), refreshFolders()]);
-      reset();
+      finish();
       // Pages are now copied into the library; working files are no longer needed.
       clearTempFiles();
       // Close the scan flow (Scan, Crop, Enhance, Save) so Back from the document goes Home.
@@ -112,8 +113,11 @@ export default function ExportScreen() {
         setSharing(false);
         await sharePdf(pdf);
       } else {
-        // JPEG: share the page image as a file.
-        await Sharing.shareAsync(pages[0], { mimeType: 'image/jpeg', dialogTitle: docTitle });
+        // JPEG: every page, not just the first. One page shares as the .jpg, several as a .zip.
+        setSharing(true);
+        const result = await imagesShareFile(pages, docTitle);
+        setSharing(false);
+        await shareImagesResult(result);
       }
     } catch (error) {
       setSharing(false);
@@ -258,7 +262,9 @@ export default function ExportScreen() {
             <Text className="mt-2 font-inter text-body-sm text-on-surface-variant">
               {format === 'PDF'
                 ? 'Share creates a PDF of all pages. Save keeps the pages in your library.'
-                : 'Share sends the page as a JPEG image. Save keeps the pages in your library.'}
+                : pageCount > 1
+                  ? 'Share sends every page as a JPEG, together in one .zip. Save keeps the pages in your library.'
+                  : 'Share sends the page as a JPEG image. Save keeps the pages in your library.'}
             </Text>
           </View>
 

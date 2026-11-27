@@ -49,14 +49,13 @@ export default function SettingsScreen() {
   const prefs = settings ?? MOCK_SETTINGS;
 
   const handleLogout = () => {
-    Alert.alert('Log Out', 'You will be returned to the login screen.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert('Log out?', 'Your documents stay on this phone and you can keep using ScanKaro.', [
+      { text: 'Stay signed in', style: 'cancel' },
       {
-        text: 'Log Out',
+        text: 'Log out',
         style: 'destructive',
         onPress: async () => {
           await signOut();
-          router.replace('/login');
         },
       },
     ]);
@@ -209,7 +208,7 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               await deleteAccount();
-              router.replace('/login');
+              router.replace('/(tabs)');
             } catch (error) {
               Alert.alert('Could not delete account', error instanceof Error ? error.message : 'Please try again.');
             }
@@ -227,28 +226,6 @@ export default function SettingsScreen() {
     );
   }
 
-  if (!profile) {
-    return (
-      <View className="flex-1 bg-background" style={{ paddingTop: insets.top + 8 }}>
-        <LargeHeader title="Settings" />
-        <View className="flex-1 justify-center pb-24">
-          <EmptyState
-            icon="person-outline"
-            title="Sign in to view settings"
-            message="Your preferences sync with your account."
-          >
-            <Pressable
-              onPress={() => router.push('/login')}
-              className="mt-6 rounded-full bg-primary px-8 py-3.5 active:opacity-80"
-            >
-              <Text className="font-inter-semibold text-body-lg text-on-primary">Go to Login</Text>
-            </Pressable>
-          </EmptyState>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View className="flex-1 bg-background">
       <ScrollView
@@ -257,8 +234,27 @@ export default function SettingsScreen() {
       >
         <LargeHeader title="Settings" />
 
-        {/* Profile card */}
+        {/* Profile card. Signed out: the optional way in to an account. */}
         <View className="mb-8 px-margin-mobile">
+          {!profile ? (
+            <Card
+              onPress={() => router.push('/login')}
+              className="flex-row items-center gap-4 p-4"
+            >
+              <View className="h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                <Icon name="person-outline" size={30} className="text-primary" />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="font-inter-bold text-title-md text-on-surface" numberOfLines={1}>
+                  Sign in or create account
+                </Text>
+                <Text className="font-inter text-body-sm text-on-surface-variant" numberOfLines={2}>
+                  Optional. ScanKaro works fully without one.
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={24} className="text-on-surface-variant/40" />
+            </Card>
+          ) : (
           <Card onPress={() => router.push('/account')} className="flex-row items-center gap-4 p-4">
             {profile.avatar ? (
               <Image source={{ uri: profile.avatar }} className="h-16 w-16 rounded-full" />
@@ -277,16 +273,21 @@ export default function SettingsScreen() {
             </View>
             <Icon name="chevron-right" size={24} className="text-on-surface-variant/40" />
           </Card>
+          )}
         </View>
 
-        <SectionHeader title="Account" />
-        <SettingsGroup>
-          <SettingRow icon="person" color="blue" label="Personal Information" onPress={() => router.push('/account')} />
-          <SettingDivider />
-          <SettingRow icon="lock-reset" color="gray" label="Change Password" onPress={handleChangePassword} />
-        </SettingsGroup>
+        {profile ? (
+          <>
+            <SectionHeader title="Account" />
+            <SettingsGroup>
+              <SettingRow icon="person" color="blue" label="Personal Information" onPress={() => router.push('/account')} />
+              <SettingDivider />
+              <SettingRow icon="lock-reset" color="gray" label="Change Password" onPress={handleChangePassword} />
+            </SettingsGroup>
+          </>
+        ) : null}
 
-        <View className="mt-7">
+        <View className={profile ? 'mt-7' : ''}>
           <SectionHeader title="Preferences" />
           <SettingsGroup>
             <View className="px-4 py-3.5">
@@ -432,20 +433,22 @@ export default function SettingsScreen() {
           </SettingsGroup>
         </View>
 
-        <View className="mt-7">
-          <SettingsGroup>
-            <SettingRow icon="logout" label="Log Out" destructive showChevron={false} onPress={handleLogout} />
-            <SettingDivider />
-            <SettingRow
-              icon="delete-forever"
-              label="Delete Account"
-              subtitle="Removes your account and every document on this device"
-              destructive
-              showChevron={false}
-              onPress={handleDeleteAccount}
-            />
-          </SettingsGroup>
-        </View>
+        {profile ? (
+          <View className="mt-7">
+            <SettingsGroup>
+              <SettingRow icon="logout" label="Log Out" destructive showChevron={false} onPress={handleLogout} />
+              <SettingDivider />
+              <SettingRow
+                icon="delete-forever"
+                label="Delete Account"
+                subtitle="Removes your account and every document on this device"
+                destructive
+                showChevron={false}
+                onPress={handleDeleteAccount}
+              />
+            </SettingsGroup>
+          </View>
+        ) : null}
 
         <Text className="mt-6 text-center font-inter text-label-md text-on-surface-variant">
           ScanKaro v{appConfig.app.version}

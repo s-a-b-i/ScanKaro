@@ -1,9 +1,10 @@
-import { useRouter } from 'expo-router';
-import { ComponentProps, useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { ComponentProps, useCallback, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DocumentListItem } from '../../components/DocumentListItem';
+import { DraftListItem, draftTitle } from '../../components/DraftListItem';
 import { Icon } from '../../components/Icon';
 import { LoadingOverlay } from '../../components/LoadingOverlay';
 import { SearchField } from '../../components/SearchField';
@@ -14,9 +15,12 @@ import { useScan } from '../../context/ScanProvider';
 import { pastel, PastelName } from '../../constants/pastel';
 import { useTheme } from '../../constants/theme';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useStartScan } from '../../hooks/useStartScan';
 import { importFromGallery } from '../../utils/galleryImport';
-import { clearDraft, loadDraft } from '../../utils/scanDraft';
-import { clearTempFiles } from '../../utils/tempFiles';
+import { discardDraft, listDrafts, ScanDraft } from '../../utils/scanDraft';
+
+/** Drafts shown before "Show all". */
+const DRAFTS_PREVIEW = 3;
 
 type Shortcut = {
   key: string;
@@ -25,10 +29,6 @@ type Shortcut = {
   color: PastelName;
   onPress: () => void;
 };
-
-
-/** Offer an unsaved scan only once per app launch. */
-let draftOffered = false;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -43,7 +43,8 @@ export default function HomeScreen() {
     clearSearch,
     toggleFavorite,
   } = useApp();
-  const { reset, addPage, restoreDraft } = useScan();
+  const { reset, addPage, restoreDraft, draftId: activeDraftId } = useScan();
+  const startScan = useStartScan();
   const { isDark } = useTheme();
 
   const [query, setQuery] = useState('');
@@ -51,33 +52,39 @@ export default function HomeScreen() {
   const [importing, setImporting] = useState(false);
   const debouncedQuery = useDebouncedValue(query);
 
-  // Crash recovery: the app closed before the last scan was saved.
-  useEffect(() => {
-    if (draftOffered) return;
-    draftOffered = true;
-    const draft = loadDraft();
-    if (!draft) return;
+  // Unsaved scans. Re-read every time Home is shown, so leaving a scan (or the app
+  // closing mid-scan) shows it here right away, with its latest pages and title.
+  const [drafts, setDrafts] = useState<ScanDraft[]>([]);
+  const [showAllDrafts, setShowAllDrafts] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setDrafts(listDrafts());
+    }, []),
+  );
+
+  const continueDraft = (draft: ScanDraft) => {
+    restoreDraft(draft);
+    // Imported photos keep their detected frame until cropped: go back to Crop for those.
+    const uncropped = draft.pages.some((uri) => draft.pageCorners?.[uri]);
+    router.push(uncropped ? '/crop' : '/enhance');
+  };
+
+  const confirmDiscardDraft = (draft: ScanDraft) => {
     const n = draft.pages.length;
-    Alert.alert('Continue your scan?', `You have ${n} unsaved page${n === 1 ? '' : 's'} from your last scan.`, [
+    Alert.alert(`Discard "${draftTitle(draft)}"?`, `Its ${n} unsaved page${n === 1 ? '' : 's'} will be deleted.`, [
+      { text: 'Keep draft', style: 'cancel' },
       {
         text: 'Discard',
         style: 'destructive',
         onPress: () => {
-          clearDraft();
-          clearTempFiles();
-        },
-      },
-      {
-        text: 'Continue',
-        onPress: () => {
-          restoreDraft(draft);
-          // Imported photos keep their detected frame until cropped: go back to Crop for those.
-          const uncropped = draft.pages.some((uri) => draft.pageCorners?.[uri]);
-          router.push(uncropped ? '/crop' : '/enhance');
+          // Still loaded as the current scan: drop it, or its next change would re-save it.
+          if (activeDraftId === draft.id) reset();
+          discardDraft(draft.id);
+          setDrafts(listDrafts());
         },
       },
     ]);
-  }, [restoreDraft, router]);
+  };
 
   useEffect(() => {
     if (debouncedQuery.trim().length >= 2) {
@@ -109,7 +116,7 @@ export default function HomeScreen() {
   };
 
   const shortcuts: Shortcut[] = [
-    { key: 'id', title: 'ID card', icon: 'badge', color: 'green', onPress: () => router.push({ pathname: '/scan', params: { mode: 'id' } }) },
+    { key: 'id', title: 'ID card', icon: 'badge', color: 'green', onPress: () => startScan({ mode: 'id' }) },
     { key: 'qr', title: 'QR scan', icon: 'qr-code-scanner', color: 'blue', onPress: () => router.push('/qr') },
     { key: 'translate', title: 'Translate', icon: 'translate', color: 'yellow', onPress: () => router.push('/translate') },
     { key: 'locker', title: 'Locker', icon: 'lock', color: 'pink', onPress: () => router.push('/locker') },
@@ -203,7 +210,7 @@ export default function HomeScreen() {
             {/* One primary action, one secondary. */}
             <View className="mt-5 flex-row gap-3">
               <Pressable
-                onPress={() => router.push('/scan')}
+                onPress={() => startScan()}
                 accessibilityRole="button"
                 className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-on-surface active:opacity-85"
               >
@@ -250,6 +257,36 @@ export default function HomeScreen() {
                 </Pressable>
               ))}
             </View>
+
+            {/* Drafts: scans started but not saved yet. Tap one to continue it. */}
+            {drafts.length > 0 ? (
+              <>
+                <View className="mb-2 mt-6 flex-row items-center justify-between">
+                  <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-on-surface">
+                    Drafts
+                  </Text>
+                  {drafts.length > DRAFTS_PREVIEW ? (
+                    <Pressable
+                      onPress={() => setShowAllDrafts((v) => !v)}
+                      hitSlop={8}
+                      className="h-11 justify-center"
+                    >
+                      <Text className="font-inter-semibold text-[15px] text-on-surface-variant">
+                        {showAllDrafts ? 'Show less' : 'Show all'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                {(showAllDrafts ? drafts : drafts.slice(0, DRAFTS_PREVIEW)).map((draft) => (
+                  <DraftListItem
+                    key={draft.id}
+                    draft={draft}
+                    onContinue={() => continueDraft(draft)}
+                    onDiscard={() => confirmDiscardDraft(draft)}
+                  />
+                ))}
+              </>
+            ) : null}
 
             {/* Recent documents: a list, since titles and dates are text. */}
             <View className="mb-2 mt-6 flex-row items-center justify-between">

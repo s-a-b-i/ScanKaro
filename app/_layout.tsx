@@ -23,7 +23,6 @@ import { ToastProvider } from '../components/Toast';
 import { ThemeProvider } from '../constants/theme';
 import { ScanProvider } from '../context/ScanProvider';
 import { emptyOldTrash } from '../services/local/library';
-import { hasDraft } from '../utils/scanDraft';
 import { clearTempFiles } from '../utils/tempFiles';
 
 if (typeof global.Buffer === 'undefined') {
@@ -43,8 +42,8 @@ export default function RootLayout() {
 
   // No scan can be in progress at launch: drop leftover working files from earlier sessions.
   useEffect(() => {
-    // Keep temp images while an unsaved scan waits to be continued (see app/(tabs)/index.tsx).
-    if (!hasDraft()) clearTempFiles();
+    // Page images of unsaved scans (drafts on Home) are kept; see utils/tempFiles.ts.
+    clearTempFiles();
     emptyOldTrash();
   }, []);
 

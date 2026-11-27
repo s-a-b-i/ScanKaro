@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BrandMark } from '../components/BrandMark';
 import { Icon } from '../components/Icon';
 import { ONBOARDING_SLIDES } from '../constants/data';
+import { markOnboardingSeen } from '../utils/onboarding';
 
 const { width } = Dimensions.get('window');
 
@@ -104,7 +106,11 @@ export default function OnboardingScreen() {
     }
   }).current;
 
-  const finish = () => router.replace('/login');
+  // Straight into the app: an account is optional (Settings > Account).
+  const finish = () => {
+    void markOnboardingSeen();
+    router.replace('/(tabs)');
+  };
   const next = () => {
     if (currentIndex < ONBOARDING_SLIDES.length - 1) {
       listRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
@@ -118,22 +124,21 @@ export default function OnboardingScreen() {
       {showSplash ? (
         <Animated.View
           style={{ opacity: splashOpacity }}
-          className="absolute inset-0 z-50 items-center justify-center bg-primary"
+          className="absolute inset-0 z-50 items-center justify-center bg-background"
         >
-          <View className="mb-6 h-24 w-24 items-center justify-center rounded-3xl bg-on-primary shadow-2xl">
-            <Icon name="document-scanner" size={48} className="text-primary" filled />
+          {/* Same badge, size and place as the system splash, so launch hands over seamlessly. */}
+          <BrandMark size={178} shape="circle" />
+          <View className="absolute bottom-0 left-0 right-0 items-center" style={{ paddingBottom: insets.bottom + 56 }}>
+            <Text className="font-inter-bold text-[28px] tracking-[-0.6px] text-on-surface">ScanKaro</Text>
+            <Text className="mt-1 font-inter text-[15px] text-on-surface-variant">Scan, organize and share</Text>
           </View>
-          <Text className="font-inter-bold text-large-title text-on-primary">ScanKaro</Text>
-          <Text className="mt-2 font-inter text-label-md uppercase tracking-widest text-on-primary/90">
-            Scan, Organize, Share
-          </Text>
         </Animated.View>
       ) : null}
 
       <View className="flex-1" style={{ paddingTop: insets.top }}>
         <View className="flex-row items-center justify-between px-margin-mobile py-stack-lg">
           <View className="flex-row items-center gap-2">
-            <Icon name="document-scanner" size={22} className="text-primary" filled />
+            <BrandMark size={28} />
             <Text className="font-inter-bold text-title-md text-on-surface">ScanKaro</Text>
           </View>
           <Pressable onPress={finish} hitSlop={8} className="rounded-full bg-surface-container-lowest px-4 py-1.5">

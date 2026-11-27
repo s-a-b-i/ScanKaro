@@ -43,7 +43,10 @@ import { compressPdf } from '../utils/pdfRender';
 import { pdfPageImages, pdfToImages, shareImagesResult } from '../utils/pdfToImages';
 import { pickImages } from '../utils/scanPicker';
 import { DocumentPickerSheet } from '../components/DocumentPickerSheet';
+import { useToast } from '../components/Toast';
 import { useScan } from '../context/ScanProvider';
+import { PDF_MIME, saveFilesToDevice } from '../utils/saveToDevice';
+import { useStartScan } from '../hooks/useStartScan';
 import { localDocumentService } from '../services/local/library';
 import type { DocumentItem } from '../types';
 import { shareDocx } from '../utils/docx';
@@ -97,7 +100,7 @@ type Tool = {
   section: ToolSection;
   /** Extra words people might search for. */
   keywords?: string;
-  onPress: () => void;
+  onPress: () => void | Promise<void>;
 };
 
 /** One tool in the 4-column grid: tonal circle icon with a short label under it. */
@@ -135,16 +138,18 @@ export default function PdfToolsRoute() {
 export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
   const tabInset = useTabBarInset();
   const router = useRouter();
+  const startScan = useStartScan();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const toast = useToast();
 
   const [pageSize, setPageSize] = useState<PdfPageSize>('a4');
   const [busy, setBusy] = useState<string | null>(null);
   const [docTool, setDocTool] = useState<DocTool | null>(null);
   const [toolQuery, setToolQuery] = useState('');
   const [toolSection, setToolSection] = useState<'All' | ToolSection>('All');
-  const { addPage, reset: resetScan } = useScan();
-  const scanMode = (mode: string) => router.push({ pathname: '/scan', params: { mode } });
+  const { addPage, reset: resetScan, setTitle: setScanTitle, setFolderId: setScanFolderId } = useScan();
+  const scanMode = (mode: string) => startScan({ mode });
   const [results, setResults] = useState<PdfFile[] | null>(null);
   const [extractSource, setExtractSource] = useState<{ uri: string; name: string; pages: number } | null>(null);
   const [ranges, setRanges] = useState('');
@@ -152,6 +157,13 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
   // Images to PDF review: chosen photos (in page order) and the file name.
   const [review, setReview] = useState<string[] | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Sign / Smart erase on a multi-page document: which page to open.
+  const [pagePick, setPagePick] = useState<{ id: string; title: string; pages: string[]; tool: 'sign' | 'erase' } | null>(
+    null,
+  );
+  // Merge: the chosen PDFs in merge order, and the merged file's name.
+  const [mergeList, setMergeList] = useState<{ uri: string; name: string }[] | null>(null);
+  const [mergeTitle, setMergeTitle] = useState('');
   const [pdfTitle, setPdfTitle] = useState('');
   // Rotate / Watermark: the chosen PDF and its options.
   const [edit, setEdit] = useState<{
@@ -168,6 +180,16 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
   const [showPassword, setShowPassword] = useState(false);
   const [info, setInfo] = useState<PdfInfo>({ title: '', author: '', subject: '', keywords: '' });
   const [paper, setPaper] = useState<PaperSize>('a4');
+
+  /** Copies results into a folder the user picks (they are otherwise temporary). */
+  const saveResults = async (files: PdfFile[]) => {
+    try {
+      const saved = await saveFilesToDevice(files.map((f) => ({ uri: f.uri, name: f.name, mimeType: PDF_MIME })));
+      if (saved) toast.show(saved === 1 ? `Saved ${files[0].name}` : `Saved ${saved} files`);
+    } catch (error) {
+      Alert.alert('Could not save', error instanceof Error ? error.message : 'Pick another folder and try again.');
+    }
+  };
 
   /** Runs a tool with a progress overlay and shows its output files. */
   const run = async (message: string, task: () => Promise<PdfFile[]>) => {
@@ -241,31 +263,90 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
   const handleCompress = async () => {
     const [pdf] = await pickPdfs(false);
     if (!pdf) return;
-    const before = new File(pdf.uri).size;
-    await run('Compressing…', async () => {
+    // Compressing re-draws every page as a picture: say so before typed PDFs lose their text.
+    const go = await new Promise<boolean>((resolve) =>
+      Alert.alert(
+        'Compress this PDF?',
+        'Each page is saved as a smaller image. Best for scanned PDFs: text in typed PDFs can no longer be selected or searched. Your original file is not changed.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Compress', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      ),
+    );
+    if (!go) return;
+    const before = new File(pdf.uri).size ?? 0;
+    setSavings(null);
+    setBusy('Compressing…');
+    try {
+      await nextFrame();
       const pageCount = await getPdfPageCount(pdf.uri);
       const result = await compressPdf(pdf.uri, pdf.name, pageCount, (done, total) =>
         setBusy(`Compressing… ${Math.round((done / total) * 100)}%`),
       );
       if (before > 0 && result.size >= before) {
-        Alert.alert('Already compact', 'This PDF is already small, so the compressed copy is not smaller.');
+        // Not smaller: offer nothing bigger. The original stays as it is.
+        try {
+          new File(result.uri).delete();
+        } catch {
+          // temp file; cleared on next launch anyway
+        }
+        setBusy(null);
+        Alert.alert('Already compact', `${pdf.name} is already as small as compressing can make it. Nothing was changed.`);
+        return;
       }
       setSavings(before > 0 ? { before, after: result.size } : null);
-      return [result];
-    });
+      setResults([result]);
+    } catch (error) {
+      Alert.alert('Could not compress', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setBusy(null);
+    }
   };
 
+  /** Step 1: pick PDFs, then set their order (and the file name) before merging. */
   const handleMerge = async () => {
     const pdfs = await pickPdfs(true);
     if (pdfs.length === 0) return;
-    if (pdfs.length === 1) {
-      Alert.alert('Pick more files', 'Select at least two PDFs to merge.');
-      return;
+    setMergeList(pdfs.map((p) => ({ uri: p.uri, name: p.name })));
+    setMergeTitle(`Merged ${today()}`);
+  };
+
+  const addMorePdfs = async () => {
+    // Close the sheet so Android lets the file picker open, then bring it back.
+    const current = mergeList ?? [];
+    setMergeList(null);
+    let more: { uri: string; name: string }[] = [];
+    try {
+      await nextFrame();
+      more = await pickPdfs(true);
+    } catch (error) {
+      Alert.alert('Could not add files', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      // Always bring the list back, so a picker error never loses the files already chosen.
+      setMergeList([...current, ...more.map((p) => ({ uri: p.uri, name: p.name }))]);
     }
-    await run(`Merging ${pdfs.length} PDFs…`, async () => [
+  };
+
+  const moveMerge = (from: number, to: number) =>
+    setMergeList((list) => {
+      if (!list || to < 0 || to >= list.length) return list;
+      const next = [...list];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+
+  /** Step 2: merge in the order shown. */
+  const runMerge = async () => {
+    const list = mergeList ?? [];
+    if (list.length < 2) return;
+    setMergeList(null);
+    await run(`Merging ${list.length} PDFs…`, async () => [
       await mergePdfs(
-        pdfs.map((p) => p.uri),
-        `Merged ${today()}`,
+        list.map((p) => p.uri),
+        mergeTitle.trim() || `Merged ${today()}`,
       ),
     ]);
   };
@@ -273,7 +354,12 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
   const handleSplit = async () => {
     const [pdf] = await pickPdfs(false);
     if (!pdf) return;
-    await run('Splitting pages…', () => splitPdf(pdf.uri, baseName(pdf.name)));
+    const pageCount = await getPdfPageCount(pdf.uri);
+    if (pageCount < 2) {
+      Alert.alert('Only one page', `${pdf.name} has a single page, so there is nothing to split.`);
+      return;
+    }
+    await run(`Splitting into ${pageCount} files…`, () => splitPdf(pdf.uri, baseName(pdf.name)));
   };
 
   const handleExtractPick = async () => {
@@ -362,6 +448,12 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
         Alert.alert('Add text', 'Type the watermark text.');
         return;
       }
+      // The PDF's built-in font covers Latin letters only (WinAnsi). Check here, with the
+      // sheet still open, instead of failing after it closes.
+      if (!/^[\x20-\x7E -ÿ]+$/.test(watermark.trim())) {
+        Alert.alert('Use English letters', 'Watermark text can use English letters, numbers and symbols only.');
+        return;
+      }
       setEdit(null);
       await run('Adding watermark…', async () => [await watermarkPdf(source.uri, watermark, `${title} (watermarked)`)]);
     }
@@ -420,7 +512,10 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
     if (!pdf) return;
     await runShare('Importing PDF…', async () => {
       const pages = await pdfPageImages(pdf.uri, (done, total) => setBusy(`Importing page ${done} of ${total}…`));
+      if (pages.length === 0) throw new Error('This PDF has no pages to import.');
       startScanWith(pages, 'original');
+      // Keep the PDF's own name instead of "Scan <date>".
+      setScanTitle(baseName(pdf.name));
     });
   };
 
@@ -436,13 +531,26 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
   const pickDoc = (kind: DocTool) => setDocTool(kind);
 
   const runDocTool = async (picked: DocumentItem) => {
+    try {
+      await runDocToolUnsafe(picked);
+    } catch (error) {
+      setBusy(null);
+      Alert.alert('Something went wrong', error instanceof Error ? error.message : 'Please try again.');
+    }
+  };
+
+  const runDocToolUnsafe = async (picked: DocumentItem) => {
     const kind = docTool;
     setDocTool(null);
     if (!kind) return;
     const doc = await localDocumentService.getById(picked.id);
-    const pages = doc?.pageUrls ?? [];
-    if (!doc || pages.length === 0) {
-      Alert.alert('Document not found', 'This document has no pages.');
+    if (!doc) {
+      Alert.alert('Document not found', 'It may have been deleted. Pick another document.');
+      return;
+    }
+    const pages = doc.pageUrls ?? [];
+    if (pages.length === 0) {
+      Alert.alert('No pages', 'This document has no pages to work with.');
       return;
     }
     switch (kind) {
@@ -454,13 +562,21 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
         return;
       case 'sign':
       case 'erase':
-        router.push({ pathname: '/annotate/[id]', params: { id: doc.id, page: '0', tool: kind } });
+        // Several pages: choose which one (a contract is signed on its last page).
+        if (pages.length > 1) {
+          setPagePick({ id: doc.id, title: doc.title, pages, tool: kind });
+          return;
+        }
+        router.push({ pathname: '/annotate/[id]', params: { id: doc.id, page: '0', tool: kind, from: 'tools' } });
         return;
       case 'reorder':
         router.push(`/manage-pages/${doc.id}`);
         return;
       case 'noMarks':
         startScanWith(pages, 'noMarks');
+        // Saves as a cleaned copy next to the original, not as an anonymous "Scan <date>".
+        setScanTitle(`${doc.title} (clean)`);
+        if (doc.folderId) setScanFolderId(doc.folderId);
         return;
       case 'print':
         await runShare('Preparing to print…', () => printPages(pages, doc.title, 1));
@@ -498,7 +614,7 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
 
   const tools: Tool[] = [
     // Scan
-    { key: 'scan', label: 'Scan to PDF', icon: 'document-scanner', color: 'blue', section: 'Scan', keywords: 'camera pdf', onPress: () => router.push('/scan') },
+    { key: 'scan', label: 'Scan to PDF', icon: 'document-scanner', color: 'blue', section: 'Scan', keywords: 'camera pdf', onPress: () => startScan() },
     { key: 'id', label: 'ID cards', icon: 'badge', color: 'green', section: 'Scan', keywords: 'cnic passport license', onPress: () => scanMode('id') },
     { key: 'ocr', label: 'Extract text', icon: 'text-snippet', color: 'yellow', section: 'Scan', keywords: 'ocr copy', onPress: () => pickDoc('ocr') },
     { key: 'idphoto', label: 'ID photo', icon: 'portrait', color: 'pink', section: 'Scan', keywords: 'passport visa picture', onPress: () => router.push('/id-photo') },
@@ -512,46 +628,62 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
     { key: 'card', label: 'Business card', icon: 'contact-page', color: 'pink', section: 'Scan', keywords: 'contact visiting', onPress: () => scanMode('card') },
     { key: 'qr', label: 'QR scanner', icon: 'qr-code-scanner', color: 'blue', section: 'Scan', keywords: 'barcode wifi', onPress: () => router.push('/qr') },
     // Import
-    { key: 'img2pdf', label: 'Images to PDF', icon: 'picture-as-pdf', color: 'yellow', section: 'Import', keywords: 'photos jpg', onPress: () => void handleImagesToPdf() },
-    { key: 'importImg', label: 'Import images', icon: 'photo-library', color: 'green', section: 'Import', keywords: 'gallery photos', onPress: () => void handleImportImages() },
-    { key: 'importPdf', label: 'Import PDF', icon: 'upload-file', color: 'blue', section: 'Import', keywords: 'file', onPress: () => void handleImportFile() },
-    { key: 'openPdf', label: 'Open PDF', icon: 'chrome-reader-mode', color: 'pink', section: 'Import', keywords: 'view read', onPress: () => void handleOpenPdf() },
+    { key: 'img2pdf', label: 'Images to PDF', icon: 'picture-as-pdf', color: 'yellow', section: 'Import', keywords: 'photos jpg', onPress: () => handleImagesToPdf() },
+    { key: 'importImg', label: 'Import images', icon: 'photo-library', color: 'green', section: 'Import', keywords: 'gallery photos', onPress: () => handleImportImages() },
+    { key: 'importPdf', label: 'Import PDF', icon: 'upload-file', color: 'blue', section: 'Import', keywords: 'file', onPress: () => handleImportFile() },
+    { key: 'openPdf', label: 'Open PDF', icon: 'chrome-reader-mode', color: 'pink', section: 'Import', keywords: 'view read', onPress: () => handleOpenPdf() },
     // Convert
     { key: 'word', label: 'To Word', icon: 'description', color: 'blue', section: 'Convert', keywords: 'docx', onPress: () => pickDoc('word') },
     { key: 'excel', label: 'To Excel', icon: 'table-chart', color: 'green', section: 'Convert', keywords: 'xlsx sheet table', onPress: () => pickDoc('excel') },
     { key: 'ppt', label: 'To PPT', icon: 'slideshow', color: 'pink', section: 'Convert', keywords: 'pptx powerpoint slides', onPress: () => pickDoc('ppt') },
-    { key: 'pdf2img', label: 'PDF to images', icon: 'collections', color: 'yellow', section: 'Convert', keywords: 'jpg', onPress: () => void handleToImages() },
-    { key: 'long', label: 'Long image', icon: 'view-day', color: 'blue', section: 'Convert', keywords: 'pdf stitch', onPress: () => void handleLongImage() },
-    { key: 'compress', label: 'Compress', icon: 'compress', color: 'green', section: 'Convert', keywords: 'pdf smaller size', onPress: () => void handleCompress() },
+    { key: 'pdf2img', label: 'PDF to images', icon: 'collections', color: 'yellow', section: 'Convert', keywords: 'jpg', onPress: () => handleToImages() },
+    { key: 'long', label: 'Long image', icon: 'view-day', color: 'blue', section: 'Convert', keywords: 'pdf stitch', onPress: () => handleLongImage() },
+    { key: 'compress', label: 'Compress', icon: 'compress', color: 'green', section: 'Convert', keywords: 'pdf smaller size', onPress: () => handleCompress() },
     // Edit
     { key: 'sign', label: 'Sign', icon: 'gesture', color: 'green', section: 'Edit', keywords: 'signature', onPress: () => pickDoc('sign') },
-    { key: 'watermark', label: 'Watermark', icon: 'branding-watermark', color: 'blue', section: 'Edit', keywords: 'pdf stamp', onPress: () => void handleEditPick('watermark') },
+    { key: 'watermark', label: 'Watermark', icon: 'branding-watermark', color: 'blue', section: 'Edit', keywords: 'pdf stamp', onPress: () => handleEditPick('watermark') },
     { key: 'erase', label: 'Smart erase', icon: 'auto-fix-normal', color: 'yellow', section: 'Edit', keywords: 'remove', onPress: () => pickDoc('erase') },
     { key: 'noMarks', label: 'Erase pen marks', icon: 'format-color-reset', color: 'pink', section: 'Edit', keywords: 'ink handwriting remove', onPress: () => pickDoc('noMarks') },
     { key: 'restore', label: 'Restore photo', icon: 'auto-fix-high', color: 'yellow', section: 'Edit', keywords: 'old faded', onPress: () => router.push('/restore-photo') },
     { key: 'reorder', label: 'Reorder pages', icon: 'swap-vert', color: 'blue', section: 'Edit', keywords: 'move order', onPress: () => pickDoc('reorder') },
-    { key: 'merge', label: 'Merge PDFs', icon: 'call-merge', color: 'green', section: 'Edit', keywords: 'combine join', onPress: () => void handleMerge() },
-    { key: 'split', label: 'Split PDF', icon: 'call-split', color: 'yellow', section: 'Edit', keywords: 'separate', onPress: () => void handleSplit() },
-    { key: 'extract', label: 'Extract pages', icon: 'content-cut', color: 'pink', section: 'Edit', keywords: 'pdf pages', onPress: () => void handleExtractPick() },
-    { key: 'rotate', label: 'Rotate', icon: 'rotate-right', color: 'blue', section: 'Edit', keywords: 'pdf turn', onPress: () => void handleEditPick('rotate') },
-    { key: 'resize', label: 'Page size', icon: 'aspect-ratio', color: 'green', section: 'Edit', keywords: 'a4 letter', onPress: () => void handleEditPick('resize') },
-    { key: 'numbers', label: 'Page numbers', icon: 'format-list-numbered', color: 'yellow', section: 'Edit', keywords: 'pdf', onPress: () => void handleNumbers() },
-    { key: 'lock', label: 'Lock PDF', icon: 'lock', color: 'pink', section: 'Edit', keywords: 'password protect', onPress: () => void handleEditPick('protect') },
-    { key: 'info', label: 'Edit info', icon: 'info', color: 'blue', section: 'Edit', keywords: 'title author', onPress: () => void handleEditPick('info') },
+    { key: 'merge', label: 'Merge PDFs', icon: 'call-merge', color: 'green', section: 'Edit', keywords: 'combine join', onPress: () => handleMerge() },
+    { key: 'split', label: 'Split PDF', icon: 'call-split', color: 'yellow', section: 'Edit', keywords: 'separate', onPress: () => handleSplit() },
+    { key: 'extract', label: 'Extract pages', icon: 'content-cut', color: 'pink', section: 'Edit', keywords: 'pdf pages', onPress: () => handleExtractPick() },
+    { key: 'rotate', label: 'Rotate', icon: 'rotate-right', color: 'blue', section: 'Edit', keywords: 'pdf turn', onPress: () => handleEditPick('rotate') },
+    { key: 'resize', label: 'Page size', icon: 'aspect-ratio', color: 'green', section: 'Edit', keywords: 'a4 letter', onPress: () => handleEditPick('resize') },
+    { key: 'numbers', label: 'Page numbers', icon: 'format-list-numbered', color: 'yellow', section: 'Edit', keywords: 'pdf', onPress: () => handleNumbers() },
+    { key: 'lock', label: 'Lock PDF', icon: 'lock', color: 'pink', section: 'Edit', keywords: 'password protect', onPress: () => handleEditPick('protect') },
+    { key: 'info', label: 'Edit info', icon: 'info', color: 'blue', section: 'Edit', keywords: 'title author', onPress: () => handleEditPick('info') },
     // Utilities
     { key: 'locker', label: 'Locker', icon: 'lock', color: 'blue', section: 'Utilities', keywords: 'private hide vault secret photos files', onPress: () => router.push('/locker') },
     { key: 'qrNew', label: 'Create QR', icon: 'qr-code-2', color: 'yellow', section: 'Utilities', keywords: 'code', onPress: () => router.push('/qr-create') },
-    { key: 'history', label: 'Scan history', icon: 'history', color: 'blue', section: 'Utilities', keywords: 'qr codes', onPress: () => router.push('/qr-history') },
+    { key: 'history', label: 'QR history', icon: 'history', color: 'blue', section: 'Utilities', keywords: 'qr codes barcode scan history', onPress: () => router.push('/qr-history') },
     { key: 'print', label: 'Print', icon: 'print', color: 'green', section: 'Utilities', keywords: 'printer', onPress: () => pickDoc('print') },
     { key: 'dupes', label: 'Duplicates', icon: 'filter-none', color: 'pink', section: 'Utilities', keywords: 'same copy', onPress: () => router.push('/duplicates') },
   ];
+
+  // Every tile goes through one guard: a picker or file read that throws before a tool's
+  // own error handling starts now shows a message (and clears the spinner) instead of
+  // failing silently.
+  const guarded = tools.map((t) => ({
+    ...t,
+    onPress: async () => {
+      try {
+        await t.onPress();
+      } catch (error) {
+        setBusy(null);
+        Alert.alert('Something went wrong', error instanceof Error ? error.message : 'Please try again.');
+      }
+    },
+  }));
 
   const q = toolQuery.trim().toLowerCase();
   const visibleSections = TOOL_SECTIONS.filter((sec) => toolSection === 'All' || sec === toolSection)
     .map((section) => ({
       section,
-      items: tools.filter(
-        (t) => t.section === section && (!q || `${t.label} ${t.keywords ?? ''}`.toLowerCase().includes(q)),
+      items: guarded.filter(
+        (t) =>
+          t.section === section && (!q || `${t.label} ${t.keywords ?? ''} ${t.section}`.toLowerCase().includes(q)),
       ),
     }))
     .filter((g) => g.items.length > 0);
@@ -942,6 +1074,143 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
         </KeyboardAvoid>
       </Modal>
 
+      {/* Sign / Smart erase: choose the page */}
+      <Modal visible={!!pagePick} transparent animationType="slide" onRequestClose={() => setPagePick(null)}>
+        <View className="flex-1 justify-end bg-black/50">
+          <Pressable className="flex-1" onPress={() => setPagePick(null)} accessibilityLabel="Close" />
+          <View className="max-h-[80%] overflow-hidden rounded-t-[32px] pt-3" style={{ paddingBottom: insets.bottom + 16 }}>
+            <GlassBackground radius={32} variant="sheet" topOnly />
+            <View className="mb-3 h-1 w-10 self-center rounded-full bg-outline-variant" />
+            <View className="mb-1 flex-row items-center gap-2 pl-5 pr-3">
+              <Text className="flex-1 font-inter-semibold text-[22px] tracking-[-0.4px] text-on-surface" numberOfLines={1}>
+                {pagePick?.tool === 'sign' ? 'Which page to sign?' : 'Which page to erase on?'}
+              </Text>
+              <Pressable
+                onPress={() => setPagePick(null)}
+                accessibilityLabel="Close"
+                className="h-11 w-11 items-center justify-center rounded-full active:bg-surface-container"
+              >
+                <Icon name="close" size={22} className="text-on-surface-variant" />
+              </Pressable>
+            </View>
+            <Text className="mb-3 px-5 font-inter text-[13px] text-on-surface-variant" numberOfLines={1}>
+              {pagePick?.title}
+            </Text>
+            <ScrollView contentContainerClassName="flex-row flex-wrap gap-3 px-5 pb-2">
+              {pagePick?.pages.map((uri, index) => (
+                <Pressable
+                  key={`${uri}-${index}`}
+                  onPress={() => {
+                    const pick = pagePick;
+                    if (!pick) return;
+                    setPagePick(null);
+                    router.push({
+                      pathname: '/annotate/[id]',
+                      params: { id: pick.id, page: String(index), tool: pick.tool, from: 'tools' },
+                    });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Page ${index + 1}`}
+                  className="w-[30%] active:opacity-70"
+                >
+                  <View className="aspect-[3/4] overflow-hidden rounded-2xl bg-surface-container">
+                    <Image source={{ uri }} className="h-full w-full" resizeMode="cover" />
+                  </View>
+                  <Text className="mt-1 text-center font-inter-semibold text-[13px] text-on-surface">Page {index + 1}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Merge: set the order before merging */}
+      <Modal visible={!!mergeList} transparent animationType="slide" onRequestClose={() => setMergeList(null)}>
+        <KeyboardAvoid inModal className="flex-1 justify-end bg-black/50">
+          <Pressable className="flex-1" onPress={() => setMergeList(null)} />
+          <View className="max-h-[88%] overflow-hidden rounded-t-[32px] pt-3" style={{ paddingBottom: insets.bottom + 20 }}>
+            <GlassBackground radius={32} variant="sheet" topOnly />
+            <View className="mb-4 h-1 w-10 self-center rounded-full bg-outline-variant" />
+            <View className="mb-1 flex-row items-center justify-between px-5">
+              <Text className="font-inter-semibold text-[22px] tracking-[-0.4px] text-on-surface">
+                Merge {mergeList?.length ?? 0} PDF{mergeList?.length === 1 ? '' : 's'}
+              </Text>
+              <Pressable
+                onPress={() => void addMorePdfs()}
+                className="h-9 flex-row items-center gap-1 rounded-full bg-surface-container px-3 active:opacity-70"
+              >
+                <Icon name="add" size={18} className="text-on-surface" />
+                <Text className="font-inter-semibold text-[13px] text-on-surface">Add more</Text>
+              </Pressable>
+            </View>
+            <Text className="mb-3 px-5 font-inter text-[13px] text-on-surface-variant">
+              {(mergeList?.length ?? 0) < 2
+                ? 'Add at least one more PDF to merge.'
+                : 'Files are joined top to bottom. Use the arrows to change the order.'}
+            </Text>
+            <ScrollView className="max-h-[320px]" contentContainerClassName="px-5 pb-1">
+              {mergeList?.map((item, index) => {
+                const last = index === mergeList.length - 1;
+                return (
+                  <View key={`${item.uri}-${index}`} className="mb-2 flex-row items-center gap-2 rounded-2xl bg-surface-container p-2.5">
+                    <View className="h-7 min-w-7 items-center justify-center rounded-full bg-on-surface px-1.5">
+                      <Text className="font-inter-semibold text-[12px] text-surface">{index + 1}</Text>
+                    </View>
+                    <Icon name="picture-as-pdf" size={20} className="text-[#e5484d]" />
+                    <Text className="min-w-0 flex-1 font-inter-semibold text-[14px] text-on-surface" numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Pressable
+                      onPress={() => moveMerge(index, index - 1)}
+                      disabled={index === 0}
+                      accessibilityLabel={`Move ${item.name} up`}
+                      className={`h-10 w-10 items-center justify-center rounded-full ${index === 0 ? 'opacity-30' : 'active:bg-surface-container-high'}`}
+                    >
+                      <Icon name="keyboard-arrow-up" size={22} className="text-on-surface" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => moveMerge(index, index + 1)}
+                      disabled={last}
+                      accessibilityLabel={`Move ${item.name} down`}
+                      className={`h-10 w-10 items-center justify-center rounded-full ${last ? 'opacity-30' : 'active:bg-surface-container-high'}`}
+                    >
+                      <Icon name="keyboard-arrow-down" size={22} className="text-on-surface" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setMergeList((list) => list?.filter((_, i) => i !== index) ?? null)}
+                      accessibilityLabel={`Remove ${item.name}`}
+                      className="h-10 w-10 items-center justify-center rounded-full active:bg-error-container"
+                    >
+                      <Icon name="close" size={20} className="text-on-surface-variant" />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View className="px-5">
+              <Text className="mb-2 mt-3 font-inter-semibold text-[14px] text-on-surface">File name</Text>
+              <TextInput
+                value={mergeTitle}
+                onChangeText={setMergeTitle}
+                placeholder="Merged document"
+                placeholderTextColor={`${colors['on-surface-variant']}99`}
+                className="h-12 rounded-2xl bg-surface-container px-4 font-inter text-[16px] text-on-surface"
+              />
+              <Pressable
+                onPress={() => void runMerge()}
+                disabled={(mergeList?.length ?? 0) < 2}
+                className={`mt-5 h-14 flex-row items-center justify-center gap-2 rounded-full bg-on-surface active:opacity-85 ${
+                  (mergeList?.length ?? 0) < 2 ? 'opacity-40' : ''
+                }`}
+              >
+                <Icon name="merge-type" size={20} className="text-surface" />
+                <Text className="font-inter-semibold text-[17px] text-surface">Merge PDFs</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoid>
+      </Modal>
+
       {/* Results */}
       <Modal visible={!!results} transparent animationType="slide" onRequestClose={() => setResults(null)}>
         <View className="flex-1 justify-end bg-black/50">
@@ -1006,6 +1275,15 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
                     </Pressable>
                   )}
                   <Pressable
+                    onPress={() => void saveResults([file])}
+                    hitSlop={6}
+                    accessibilityLabel={`Save ${file.name} to a folder`}
+                    className="h-10 flex-row items-center gap-1 rounded-full border border-outline-variant px-3 active:bg-surface-container-high"
+                  >
+                    <Icon name="download" size={16} className="text-on-surface" />
+                    <Text className="font-inter-semibold text-[13px] text-on-surface">Save</Text>
+                  </Pressable>
+                  <Pressable
                     onPress={() => void share(file)}
                     hitSlop={6}
                     className="h-10 flex-row items-center gap-1 rounded-full bg-on-surface px-3.5 active:opacity-80"
@@ -1017,14 +1295,26 @@ export function PdfToolsScreen({ inTab = false }: { inTab?: boolean }) {
               ))}
             </ScrollView>
             <Text className="mb-3 text-center font-inter text-[12px] text-on-surface-variant">
-              Use Share to save to Files or Drive, send, or print.
+              Save keeps a copy in a folder you choose, like Downloads. Results you don't save or share are
+              cleared the next time ScanKaro opens.
             </Text>
-            <Pressable
-              onPress={() => setResults(null)}
-              className="h-14 items-center justify-center rounded-full border border-outline-variant active:bg-surface-container"
-            >
-              <Text className="font-inter-semibold text-[17px] text-on-surface">Done</Text>
-            </Pressable>
+            <View className="flex-row gap-3">
+              {results && results.length > 1 ? (
+                <Pressable
+                  onPress={() => void saveResults(results)}
+                  className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-on-surface active:opacity-85"
+                >
+                  <Icon name="download" size={20} className="text-surface" />
+                  <Text className="font-inter-semibold text-[17px] text-surface">Save all</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => setResults(null)}
+                className="h-14 flex-1 items-center justify-center rounded-full border border-outline-variant active:bg-surface-container"
+              >
+                <Text className="font-inter-semibold text-[17px] text-on-surface">Done</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
