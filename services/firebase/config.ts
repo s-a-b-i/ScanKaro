@@ -6,6 +6,7 @@ import {
   initializeAuth,
   type Persistence,
 } from 'firebase/auth';
+import { Platform } from 'react-native';
 
 import { appConfig } from '../../constants/config';
 
@@ -34,6 +35,8 @@ function createFirebaseApp(): FirebaseApp {
 }
 
 function createFirebaseAuth(app: FirebaseApp): Auth {
+  // The web build of firebase/auth has its own (browser) persistence.
+  if (Platform.OS === 'web') return getAuth(app);
   try {
     return initializeAuth(app, {
       persistence: getRnPersistence(),
@@ -43,5 +46,14 @@ function createFirebaseAuth(app: FirebaseApp): Auth {
   }
 }
 
-export const firebaseApp = createFirebaseApp();
-export const firebaseAuth = createFirebaseAuth(firebaseApp);
+let auth: Auth | null = null;
+
+/**
+ * Firebase Auth, created on first use. Not at import time: without a Firebase key
+ * (no .env, mock login) Firebase throws auth/invalid-api-key and would crash the app
+ * on start, although the mock auth service never calls it.
+ */
+export function getFirebaseAuth(): Auth {
+  if (!auth) auth = createFirebaseAuth(createFirebaseApp());
+  return auth;
+}
