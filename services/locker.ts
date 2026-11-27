@@ -10,13 +10,10 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 
+import { pinWaitSeconds, recordPinFailure, recordPinSuccess } from '../utils/pinAttempts';
+
 const KEY_HASH = 'scankaro.locker.pinHash';
 const KEY_SALT = 'scankaro.locker.pinSalt';
-const MAX_ATTEMPTS = 5;
-const COOLDOWN_MS = 30_000;
-
-let failedAttempts = 0;
-let lockedUntil = 0;
 
 export type LockerItem = {
   id: string;
@@ -42,6 +39,7 @@ export async function lockerHasPin(): Promise<boolean> {
 
 export async function setLockerPin(pin: string): Promise<void> {
   if (!/^\d{4}$/.test(pin)) throw new Error('The PIN must be 4 digits.');
+  await recordPinSuccess('locker'); // a new PIN starts with a clean attempt count
   const salt = Crypto.randomUUID();
   await SecureStore.setItemAsync(KEY_SALT, salt);
   await SecureStore.setItemAsync(KEY_HASH, await hashPin(pin, salt));
@@ -50,21 +48,15 @@ export async function setLockerPin(pin: string): Promise<void> {
 export type LockerPinCheck = { ok: true } | { ok: false; waitSeconds?: number; attemptsLeft?: number };
 
 export async function verifyLockerPin(pin: string): Promise<LockerPinCheck> {
-  const now = Date.now();
-  if (now < lockedUntil) return { ok: false, waitSeconds: Math.ceil((lockedUntil - now) / 1000) };
+  const wait = await pinWaitSeconds('locker');
+  if (wait > 0) return { ok: false, waitSeconds: wait };
   const [hash, salt] = await Promise.all([SecureStore.getItemAsync(KEY_HASH), SecureStore.getItemAsync(KEY_SALT)]);
   if (!hash || !salt) return { ok: false };
   if ((await hashPin(pin, salt)) === hash) {
-    failedAttempts = 0;
+    await recordPinSuccess('locker');
     return { ok: true };
   }
-  failedAttempts += 1;
-  if (failedAttempts >= MAX_ATTEMPTS) {
-    failedAttempts = 0;
-    lockedUntil = Date.now() + COOLDOWN_MS;
-    return { ok: false, waitSeconds: COOLDOWN_MS / 1000 };
-  }
-  return { ok: false, attemptsLeft: MAX_ATTEMPTS - failedAttempts };
+  return { ok: false, ...(await recordPinFailure('locker')) };
 }
 
 /** Fingerprint/face unlock, when the phone has it set up. */
@@ -135,30 +127,52 @@ const extOf = (name: string, mime: string) => {
 };
 
 /** Copies files into the Locker. The originals are left where they were. */
-export function addToLocker(sources: { uri: string; name?: string | null; mimeType?: string | null }[]): number {
+/**
+ * Copies files into the Locker one by one. A file that can't be copied (no space,
+ * unreadable) is skipped and counted, never left half-added: the index is written for
+ * every file that made it, even when a later one fails.
+ */
+export function addToLocker(sources: { uri: string; name?: string | null; mimeType?: string | null }[]): {
+  added: number;
+  failed: number;
+} {
   const items = readIndex();
   const dir = folder();
   let added = 0;
-  for (const src of sources) {
-    const mimeType = src.mimeType || (/\.(jpe?g|png|webp|heic)$/i.test(src.uri) ? 'image/jpeg' : 'application/octet-stream');
-    const name = src.name || src.uri.split('/').pop() || 'File';
-    const id = `lk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    const fileName = `${id}.${extOf(name, mimeType)}`;
-    const dest = new File(dir, fileName);
-    new File(src.uri).copy(dest);
-    items.push({
-      id,
-      name,
-      kind: mimeType.startsWith('image/') ? 'image' : 'file',
-      mimeType,
-      size: dest.size ?? 0,
-      addedAt: Date.now() + added,
-      file: fileName,
-    });
-    added++;
+  let failed = 0;
+  try {
+    for (const src of sources) {
+      const mimeType = src.mimeType || (/\.(jpe?g|png|webp|heic)$/i.test(src.uri) ? 'image/jpeg' : 'application/octet-stream');
+      const name = src.name || src.uri.split('/').pop() || 'File';
+      const id = `lk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+      const fileName = `${id}.${extOf(name, mimeType)}`;
+      const dest = new File(dir, fileName);
+      try {
+        new File(src.uri).copy(dest);
+      } catch {
+        failed++;
+        try {
+          if (dest.exists) dest.delete(); // no orphan half-copies
+        } catch {
+          // ignore
+        }
+        continue;
+      }
+      items.push({
+        id,
+        name,
+        kind: mimeType.startsWith('image/') ? 'image' : 'file',
+        mimeType,
+        size: dest.size ?? 0,
+        addedAt: Date.now() + added,
+        file: fileName,
+      });
+      added++;
+    }
+  } finally {
+    writeIndex(items);
   }
-  writeIndex(items);
-  return added;
+  return { added, failed };
 }
 
 export function renameLockerItem(id: string, name: string) {
