@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   GoogleAuthProvider,
   onAuthStateChanged as firebaseOnAuthStateChanged,
   sendPasswordResetEmail,
@@ -82,6 +83,20 @@ export const firebaseAuthService: IAuthService = {
 
   async signOut() {
     await firebaseSignOut(firebaseAuth);
+  },
+
+  async deleteAccount() {
+    const user = firebaseAuth.currentUser;
+    if (!user) throw new Error('You are not signed in.');
+    try {
+      await deleteUser(user);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'auth/requires-recent-login') {
+        throw new Error('For your security, please log out, sign in again, and then delete your account.');
+      }
+      throw new Error(getAuthErrorMessage(error));
+    }
   },
 
   async getIdToken() {

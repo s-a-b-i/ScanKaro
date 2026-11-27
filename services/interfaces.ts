@@ -4,7 +4,8 @@ export interface IDocumentService {
   list(): Promise<DocumentItem[]>;
   getById(id: string): Promise<DocumentItem | null>;
   toggleFavorite(id: string): Promise<DocumentItem>;
-  remove(id: string): Promise<void>;
+  /** Returns a trash id when the document can be restored (local library). */
+  remove(id: string): Promise<string | undefined | void>;
   search?(query: string): Promise<DocumentItem[]>;
   update?(id: string, data: { title?: string; folderId?: string | null; isFavorite?: boolean }): Promise<DocumentItem>;
   saveOcrText?(id: string, ocrText: string): Promise<void>;
@@ -22,6 +23,8 @@ export interface IAuthService {
   signInWithGoogle(tokens: GoogleSignInTokens): Promise<UserProfile>;
   resetPassword(email: string): Promise<void>;
   signOut(): Promise<void>;
+  /** Permanently deletes the signed-in account. */
+  deleteAccount?(): Promise<void>;
   onAuthStateChanged(callback: (user: UserProfile | null) => void): () => void;
   getIdToken(): Promise<string | null>;
 }

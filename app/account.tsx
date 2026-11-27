@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '../components/ScreenHeader';
+import { SettingDivider, SettingRow } from '../components/settings/SettingRow';
+import { SectionHeader, SettingsGroup } from '../components/settings/SettingsUI';
 import { appConfig } from '../constants/config';
 import { useApp } from '../context/AppProvider';
 import { userApi } from '../services/api/user';
@@ -15,19 +17,17 @@ export default function AccountScreen() {
   const { profile, refreshProfile } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [plan, setPlan] = useState('Free');
   const [avatar, setAvatar] = useState('');
-  const [loading, setLoading] = useState(appConfig.api.enabled);
+  const [loading, setLoading] = useState(appConfig.cloud.enabled);
 
   useEffect(() => {
     if (!profile) return;
 
     setName(profile.name);
     setEmail(profile.email);
-    setPlan(profile.plan);
     setAvatar(profile.avatar);
 
-    if (!appConfig.api.enabled) {
+    if (!appConfig.cloud.enabled) {
       setLoading(false);
       return;
     }
@@ -37,7 +37,6 @@ export default function AccountScreen() {
         const apiProfile = await userApi.getMe();
         setName(apiProfile.name);
         setEmail(apiProfile.email);
-        setPlan(apiProfile.plan);
         setAvatar(apiProfile.avatar);
       } catch {
         // keep Firebase profile values
@@ -55,58 +54,47 @@ export default function AccountScreen() {
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#00685f" />
+          <ActivityIndicator size="large" color="#8e8e93" />
         </View>
       ) : (
-        <ScrollView contentContainerClassName="gap-stack-lg p-margin-mobile pb-28">
-          <View className="items-center py-4">
+        <ScrollView
+          contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="mb-8 items-center px-margin-mobile">
             {avatar ? (
-              <Image source={{ uri: avatar }} className="mb-4 h-24 w-24 rounded-full border-2 border-outline-variant" />
+              <Image source={{ uri: avatar }} className="mb-3 h-24 w-24 rounded-full" />
             ) : (
-              <View className="mb-4 h-24 w-24 items-center justify-center rounded-full border-2 border-outline-variant bg-primary-container">
-                <Text className="font-inter-semibold text-display-lg text-primary">{name.charAt(0).toUpperCase()}</Text>
+              <View className="mb-3 h-24 w-24 items-center justify-center rounded-full bg-primary/10">
+                <Text className="font-inter-bold text-[36px] text-primary">{name.charAt(0).toUpperCase()}</Text>
               </View>
             )}
-            <View className="rounded-full bg-surface-container-low px-4 py-2">
-              <Text className="font-inter text-label-md text-on-surface-variant">{plan} Plan</Text>
-            </View>
+            <Text className="font-inter-bold text-headline-lg-mobile text-on-surface">{name}</Text>
+            <Text className="mt-1 font-inter text-body-sm text-on-surface-variant">{email}</Text>
           </View>
 
-          <View className="gap-1">
-            <Text className="ml-1 font-inter text-label-md text-on-surface-variant">Full Name</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              editable={false}
-              className="h-12 rounded-xl bg-surface-container-low px-4 font-inter text-body-lg text-on-surface opacity-80"
-            />
-          </View>
+          <SectionHeader title="Profile" />
+          <SettingsGroup>
+            <SettingRow icon="person" color="blue" label="Full Name" value={name} showChevron={false} />
+            <SettingDivider />
+            <SettingRow icon="email" color="red" label="Email" value={email} showChevron={false} />
+          </SettingsGroup>
 
-          <View className="gap-1">
-            <Text className="ml-1 font-inter text-label-md text-on-surface-variant">Email</Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={false}
-              className="h-12 rounded-xl bg-surface-container-low px-4 font-inter text-body-lg text-on-surface opacity-80"
-            />
-          </View>
-
-          <Pressable
-            onPress={async () => {
-              await refreshProfile();
-              goBackOr(router, '/(tabs)/settings');
-            }}
-            className="mt-4 h-14 items-center justify-center rounded-xl bg-primary active:opacity-90"
-          >
-            <Text className="font-inter-semibold text-title-md text-on-primary">Done</Text>
-          </Pressable>
-
-          <Text className="text-center font-inter text-body-sm text-on-surface-variant">
-            Profile is synced from your Firebase account{appConfig.api.enabled ? ' and ScanKaro backend' : ''}.
+          <Text className="mt-3 px-8 font-inter text-label-md text-on-surface-variant">
+            Your profile is synced from your sign-in account{appConfig.cloud.enabled ? ' and the ScanKaro backend' : ''}.
           </Text>
+
+          <View className="mt-8 px-margin-mobile">
+            <Pressable
+              onPress={async () => {
+                await refreshProfile();
+                goBackOr(router, '/(tabs)/settings');
+              }}
+              className="h-14 items-center justify-center rounded-full bg-primary active:opacity-85"
+            >
+              <Text className="font-inter-semibold text-body-lg text-on-primary">Done</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       )}
     </View>

@@ -91,16 +91,27 @@ export async function pickScanCamera(): Promise<string | null> {
   }
 }
 
-export async function pickScanImageWithPrompt(): Promise<string | null> {
-  if (Platform.OS === 'web') {
-    return pickScanImage();
-  }
 
-  return new Promise((resolve) => {
-    Alert.alert('Add Page', 'Choose a source for your scan', [
-      { text: 'Camera', onPress: () => void pickScanCamera().then(resolve) },
-      { text: 'Gallery', onPress: () => void pickScanImage().then(resolve) },
-      { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
-    ]);
-  });
+/** Picks several images (in the order selected). Empty when cancelled. */
+export async function pickImages(limit = 30): Promise<string[]> {
+  const allowed = await ensurePermission(
+    () => ImagePicker.requestMediaLibraryPermissionsAsync(),
+    'Photo library',
+  );
+  if (!allowed) return [];
+
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      orderedSelection: true,
+      selectionLimit: limit,
+      quality: 1,
+    });
+    if (result.canceled) return [];
+    return result.assets.map((a) => a.uri);
+  } catch (error) {
+    Alert.alert('Gallery error', error instanceof Error ? error.message : 'Could not open photo library.');
+    return [];
+  }
 }

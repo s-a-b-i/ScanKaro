@@ -1,3 +1,38 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Light defaults. The active theme is applied at runtime with vars() in constants/theme.tsx. */
+:root {
+  --color-primary: 0 104 95;
+  --color-on-primary: 255 255 255;
+  --color-primary-container: 0 131 120;
+  --color-on-primary-container: 244 255 252;
+  --color-primary-fixed: 137 245 231;
+  --color-on-primary-fixed: 0 32 29;
+  --color-secondary: 86 94 116;
+  --color-on-secondary: 255 255 255;
+  --color-secondary-container: 218 226 253;
+  --color-on-secondary-container: 92 100 122;
+  --color-tertiary: 0 99 135;
+  --color-on-tertiary: 255 255 255;
+  --color-tertiary-container: 0 125 169;
+  --color-on-tertiary-container: 252 252 255;
+  --color-background: 242 243 247;
+  --color-on-background: 25 28 30;
+  --color-surface: 242 243 247;
+  --color-on-surface: 25 28 30;
+  --color-on-surface-variant: 61 73 71;
+  --color-surface-container-lowest: 255 255 255;
+  --color-surface-container-low: 242 244 246;
+  --color-surface-container: 236 238 240;
+  --color-surface-container-high: 230 232 234;
+  --color-surface-container-highest: 224 227 229;
+  --color-inverse-surface: 45 49 51;
+  --color-inverse-on-surface: 239 241 243;
+  --color-outline: 109 122 119;
+  --color-outline-variant: 188 201 198;
+  --color-error: 186 26 26;
+  --color-error-container: 255 218 214;
+  --color-on-error-container: 147 0 10;
+}

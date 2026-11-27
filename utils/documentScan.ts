@@ -1,13 +1,12 @@
-import { Buffer } from 'buffer';
-import { File, Paths } from 'expo-file-system';
+import { Image } from 'react-native';
 
 import { DocumentCorners } from './documentFrame';
-import {
-  decodeJpegBase64,
-  detectPageCornersFromImage,
-  encodeJpeg,
-  warpDocumentPerspective,
-} from './opencvDocumentScan';
+import { detectPageCornersFromImage } from './opencvDocumentScan';
+import { detectPaper } from './paperDetection';
+import { readSmallPixels, warpToFile } from './skiaImage';
+
+/** Long side of the copy used for page detection. Page outlines are big shapes. */
+const DETECT_MAX_SIDE = 256;
 
 export type DocumentDetectionResult = {
   corners: DocumentCorners;
@@ -15,22 +14,22 @@ export type DocumentDetectionResult = {
   imageHeight: number;
 };
 
-async function readUriAsBase64(uri: string) {
-  const file = new File(uri);
-  return file.base64();
+/** Image dimensions, read natively (no JS decode of the whole file). */
+export function getImageSizeFromUri(uri: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
+  });
 }
 
-export async function getImageSizeFromUri(uri: string): Promise<{ width: number; height: number }> {
-  const base64 = await readUriAsBase64(uri);
-  const image = decodeJpegBase64(base64);
-  return { width: image.width, height: image.height };
-}
-
+/**
+ * Finds the page in a photo. Corners are in the pixels of the small detection copy,
+ * whose size is returned as imageWidth / imageHeight (scale them to your image).
+ */
 export async function detectDocumentFromUri(uri: string): Promise<DocumentDetectionResult | null> {
   try {
-    const base64 = await readUriAsBase64(uri);
-    const image = decodeJpegBase64(base64);
-    const corners = detectPageCornersFromImage(image);
+    const image = await readSmallPixels(uri, DETECT_MAX_SIDE);
+    // Colour-based paper detection first (robust on busy backgrounds), edges as fallback.
+    const corners = detectPaper(image) ?? detectPageCornersFromImage(image);
     if (!corners) return null;
 
     return {
@@ -43,19 +42,8 @@ export async function detectDocumentFromUri(uri: string): Promise<DocumentDetect
   }
 }
 
+/** Crops and straightens the page inside `corners` (pixels of `uri`). Runs natively. */
 export async function cropDocumentFromUri(uri: string, corners: DocumentCorners): Promise<string> {
-  const base64 = await readUriAsBase64(uri);
-  const image = decodeJpegBase64(base64);
-  const warped = warpDocumentPerspective(image, corners);
-  const jpegBytes = encodeJpeg(warped, 90);
-  const outFile = new File(Paths.cache, `scan-crop-${Date.now()}.jpg`);
-  outFile.create();
-  outFile.write(jpegBytes);
-  return outFile.uri;
-}
-
-export async function autoScanDocumentFromUri(uri: string): Promise<string> {
-  const detection = await detectDocumentFromUri(uri);
-  if (!detection) return uri;
-  return cropDocumentFromUri(uri, detection.corners);
+  const saved = await warpToFile(uri, corners);
+  return saved.uri;
 }

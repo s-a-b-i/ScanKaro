@@ -15,6 +15,8 @@ export type DocumentItem = {
   image: string;
   folderId?: string;
   tags: string[];
+  /** Expiry date (ms) for IDs, passports, contracts…; reminders are scheduled from it. */
+  expiresAt?: number;
   favorite: boolean;
   encrypted?: boolean;
   pageUrls?: string[];
@@ -42,10 +44,15 @@ export type UserProfile = {
   avatar: string;
 };
 
+export type Appearance = 'system' | 'light' | 'dark';
+
 export type AppSettings = {
   biometricUnlock: boolean;
   stealthMode: boolean;
+  /** Old on/off switch; read only when `appearance` has never been set. */
   darkMode: boolean;
+  /** Follow the phone (default), or always light or dark. */
+  appearance?: Appearance;
   emailNotifications: boolean;
   googleDriveConnected: boolean;
   dropboxConnected: boolean;

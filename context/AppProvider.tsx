@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { appConfig } from '../constants/config';
@@ -11,6 +12,7 @@ import {
   searchDocuments,
   settingsService,
 } from '../services';
+import { localFolderService, wipeLibrary } from '../services/local/library';
 
 type AppContextValue = {
   documents: DocumentItem[];
@@ -29,15 +31,22 @@ type AppContextValue = {
   createFolder: (name: string) => Promise<FolderItem>;
   moveDocumentToFolder: (documentId: string, folderId: string | null) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
-  removeDocument: (id: string) => Promise<void>;
+  /** Returns the trash id when the document can be restored (Undo). */
+  removeDocument: (id: string) => Promise<string | undefined>;
   updateSettings: (partial: Partial<AppSettings>) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Deletes the account, then every document and setting on this device. */
+  deleteAccount: () => Promise<void>;
+  renameDocument: (id: string, title: string) => Promise<void>;
+  renameFolder: (id: string, title: string) => Promise<void>;
+  /** Deletes a folder; its documents move to the main library. */
+  deleteFolder: (id: string) => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 async function loadBackendProfile(firebaseProfile: UserProfile): Promise<UserProfile> {
-  if (!appConfig.api.enabled) return firebaseProfile;
+  if (!appConfig.cloud.enabled) return firebaseProfile;
   try {
     const apiProfile = await userApi.getMe();
     return {
@@ -145,7 +154,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const prefsPromise = settingsService.get();
 
       try {
-        if (appConfig.api.enabled) {
+        if (appConfig.cloud.enabled) {
           await syncUserWithBackend();
         }
 
@@ -190,8 +199,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshDocuments]);
 
   const removeDocument = useCallback(async (id: string) => {
-    await documentService.remove(id);
+    const trashId = await documentService.remove(id);
     await Promise.all([refreshDocuments(), refreshFolders()]);
+    return trashId || undefined;
   }, [refreshDocuments, refreshFolders]);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
@@ -206,6 +216,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFolders([]);
     setSearchResults(null);
   }, []);
+
+  const deleteAccount = useCallback(async () => {
+    // Account first: if it fails (e.g. needs a fresh sign-in), nothing on the device is lost.
+    await authService.deleteAccount?.();
+    await wipeLibrary('DELETE_ALL_DOCUMENTS');
+    await AsyncStorage.clear();
+    setProfile(null);
+    setDocuments([]);
+    setFolders([]);
+    setSearchResults(null);
+    setSettings(null);
+  }, []);
+
+  const renameDocument = useCallback(
+    async (id: string, title: string) => {
+      await documentService.update?.(id, { title });
+      await refreshDocuments();
+    },
+    [refreshDocuments],
+  );
+
+  const renameFolder = useCallback(
+    async (id: string, title: string) => {
+      await (folderService as Partial<typeof localFolderService>).rename?.(id, title);
+      await refreshFolders();
+    },
+    [refreshFolders],
+  );
+
+  const deleteFolder = useCallback(
+    async (id: string) => {
+      await (folderService as Partial<typeof localFolderService>).remove?.(id);
+      await Promise.all([refreshDocuments(), refreshFolders()]);
+    },
+    [refreshDocuments, refreshFolders],
+  );
 
   const favorites = useMemo(() => documents.filter((d) => d.favorite), [documents]);
 
@@ -230,6 +276,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeDocument,
       updateSettings,
       signOut,
+      deleteAccount,
+      renameDocument,
+      renameFolder,
+      deleteFolder,
     }),
     [
       documents,
@@ -251,6 +301,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeDocument,
       updateSettings,
       signOut,
+      deleteAccount,
+      renameDocument,
+      renameFolder,
+      deleteFolder,
     ],
   );
 

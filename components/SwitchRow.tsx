@@ -1,6 +1,7 @@
 import { Switch, Text, View } from 'react-native';
 
 import { Icon } from './Icon';
+import { useTheme } from '../constants/theme';
 
 type SwitchRowProps = {
   icon: React.ComponentProps<typeof Icon>['name'];
@@ -11,12 +12,15 @@ type SwitchRowProps = {
 };
 
 export function SwitchRow({ icon, title, subtitle, value, onValueChange }: SwitchRowProps) {
+  const { colors } = useTheme();
   return (
-    <View className="flex-row items-center justify-between p-stack-md">
+    <View className="min-h-[60px] flex-row items-center justify-between px-4 py-3">
       <View className="mr-4 flex-1 flex-row items-center gap-3">
-        <Icon name={icon} size={22} className="text-secondary" />
+        <View className="h-8 w-8 items-center justify-center rounded-[9px] bg-primary/10">
+          <Icon name={icon} size={18} className="text-primary" />
+        </View>
         <View className="flex-1">
-          <Text className="font-inter text-body-lg text-on-surface">{title}</Text>
+          <Text className="font-inter-medium text-body-lg text-on-surface">{title}</Text>
           {subtitle ? (
             <Text className="font-inter text-label-md text-on-surface-variant">{subtitle}</Text>
           ) : null}
@@ -25,8 +29,8 @@ export function SwitchRow({ icon, title, subtitle, value, onValueChange }: Switc
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: '#e0e3e5', true: '#00685f' }}
-        thumbColor="#ffffff"
+        trackColor={{ false: colors['surface-container-highest'], true: colors.primary }}
+        thumbColor={value ? colors['on-primary'] : '#ffffff'}
       />
     </View>
   );

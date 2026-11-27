@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,8 +9,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ThemeColors, useTheme } from '../constants/theme';
 
 import { Icon } from './Icon';
+import { KeyboardAvoid } from './KeyboardAvoid';
 import { FolderItem } from '../types';
 
 type CreateFolderSheetProps = {
@@ -23,6 +23,8 @@ type CreateFolderSheetProps = {
 };
 
 export function CreateFolderSheet({ visible, loading, onClose, onCreate }: CreateFolderSheetProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [name, setName] = useState('');
@@ -51,10 +53,7 @@ export function CreateFolderSheet({ visible, loading, onClose, onCreate }: Creat
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoid inModal style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
 
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
@@ -83,7 +82,7 @@ export function CreateFolderSheet({ visible, loading, onClose, onCreate }: Creat
             <Text style={styles.buttonText}>{loading ? 'Creating…' : 'Create Folder'}</Text>
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoid>
     </Modal>
   );
 }
@@ -97,6 +96,8 @@ type MoveFolderSheetProps = {
 };
 
 export function MoveFolderSheet({ visible, folders, selectedId, onClose, onSelect }: MoveFolderSheetProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
 
   return (
@@ -132,7 +133,8 @@ export function MoveFolderSheet({ visible, folders, selectedId, onClose, onSelec
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -142,10 +144,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   sheet: {
-    backgroundColor: '#f7f9fb',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
+    backgroundColor: c['surface-container-lowest'],
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 20,
     paddingTop: 12,
     zIndex: 1,
   },
@@ -157,35 +159,35 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#bcc9c6',
+    backgroundColor: c['outline-variant'],
     marginBottom: 16,
   },
   title: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 18,
-    color: '#191c1e',
+    fontFamily: 'InterTight_600SemiBold',
+    fontSize: 20,
+    color: c['on-surface'],
     marginBottom: 4,
   },
   subtitle: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'InterTight_400Regular',
     fontSize: 14,
-    color: '#3d4947',
+    color: c['on-surface-variant'],
     marginBottom: 16,
   },
   input: {
     height: 48,
-    borderRadius: 12,
-    backgroundColor: '#f2f4f6',
+    borderRadius: 16,
+    backgroundColor: c['surface-container-low'],
     paddingHorizontal: 16,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'InterTight_400Regular',
     fontSize: 16,
-    color: '#191c1e',
+    color: c['on-surface'],
     marginBottom: 16,
   },
   button: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#00685f',
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: c.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -193,9 +195,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(109, 122, 119, 0.35)',
   },
   buttonText: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'InterTight_600SemiBold',
     fontSize: 16,
-    color: '#ffffff',
+    color: c['on-primary'],
   },
   moveRow: {
     flexDirection: 'row',
@@ -203,22 +205,22 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#f2f4f6',
+    borderRadius: 16,
+    backgroundColor: c['surface-container-low'],
     marginBottom: 8,
   },
   moveRowActive: {
-    backgroundColor: '#dae2fd',
+    backgroundColor: 'rgba(0, 104, 95, 0.1)',
   },
   moveRowText: {
     flex: 1,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'InterTight_400Regular',
     fontSize: 16,
-    color: '#191c1e',
+    color: c['on-surface'],
   },
   moveRowCount: {
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'InterTight_500Medium',
     fontSize: 12,
-    color: '#3d4947',
+    color: c['on-surface-variant'],
   },
 });
