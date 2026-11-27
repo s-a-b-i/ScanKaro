@@ -68,8 +68,10 @@ export async function recognizePages(
   for (let i = 0; i < pageUris.length; i++) {
     const result = await TextRecognition.recognize(pageUris[i], language.script);
     // Column-aware order, so two-column pages read down each column instead of across.
-    const text = joinBlocks(orderBlocks(result.blocks));
-    parts.push(pageUris.length > 1 ? `— Page ${i + 1} —\n${text}` : text);
+    const text = joinBlocks(orderBlocks(result.blocks)).trim();
+    // Pages without text get no "Page N" marker, so a document with no text at all
+    // returns "" and callers can say "No text found" (markers alone are not text).
+    if (text) parts.push(pageUris.length > 1 ? `— Page ${i + 1} —\n${text}` : text);
     onProgress?.(i + 1, pageUris.length);
   }
   return parts.join('\n\n').trim();

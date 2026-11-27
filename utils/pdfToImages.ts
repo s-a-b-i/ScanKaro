@@ -74,6 +74,25 @@ export async function pdfToImages(
   return { file: out, pages: total, original };
 }
 
+/** Page images as one shareable file: the .jpg itself for one page, a .zip for several. */
+export async function imagesShareFile(imageUris: string[], title: string): Promise<ImagesResult> {
+  const safe = title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Scan';
+  const total = imageUris.length;
+  if (total === 1) return { file: new File(imageUris[0]), pages: 1, original: 1 };
+  const entries: Record<string, [Uint8Array, { level: 0 }]> = {};
+  for (let i = 0; i < total; i++) {
+    entries[`${safe} - page ${String(i + 1).padStart(String(total).length, '0')}.jpg`] = [
+      await new File(imageUris[i]).bytes(),
+      { level: 0 },
+    ];
+  }
+  const out = new File(Paths.cache, `${safe} (images).zip`);
+  if (out.exists) out.delete();
+  out.create();
+  out.write(zipSync(entries));
+  return { file: out, pages: total, original: total };
+}
+
 export async function shareImagesResult(result: ImagesResult) {
   const isZip = result.file.name.endsWith('.zip');
   await Sharing.shareAsync(result.file.uri, {

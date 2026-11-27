@@ -46,15 +46,37 @@ export default function DuplicatesScreen() {
 
   const byId = (id: string) => documents.find((d) => d.id === id);
 
-  /** Keeps `keepId` and moves the rest of its group to Recently deleted. */
+  // Per group (keyed by its first id): the copy chosen to keep. Groups dismissed as
+  // "not duplicates" are hidden for this visit.
+  const [keepChoice, setKeepChoice] = useState<Record<string, string>>({});
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const groupKey = (group: string[]) => group.join('|');
+
+  /** Keeps `keepId` and, after a confirm, moves the rest of its group to Recently deleted. */
   const keepOnly = (group: string[], keepId: string) => {
     const others = group.filter((id) => id !== keepId);
-    setGroups((cur) => cur?.filter((g) => g !== group) ?? null);
-    void deleteWithUndo(others);
+    const keepTitle = byId(keepId)?.title ?? 'this document';
+    Alert.alert(
+      `Delete ${others.length} other cop${others.length === 1 ? 'y' : 'ies'}?`,
+      `"${keepTitle}" stays. The other ${others.length === 1 ? 'one moves' : `${others.length} move`} to Recently deleted, where you can restore ${others.length === 1 ? 'it' : 'them'}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete others',
+          style: 'destructive',
+          onPress: () => {
+            setDismissed((d) => [...d, groupKey(group)]);
+            void deleteWithUndo(others);
+          },
+        },
+      ],
+    );
   };
 
-  // Ignore groups whose documents were deleted meanwhile.
-  const visible = (groups ?? []).map((g) => g.filter((id) => byId(id))).filter((g) => g.length > 1);
+  // Ignore groups whose documents were deleted meanwhile, and dismissed ones.
+  const visible = (groups ?? [])
+    .map((g) => g.filter((id) => byId(id)))
+    .filter((g) => g.length > 1 && !dismissed.includes(groupKey(g)));
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
@@ -91,38 +113,83 @@ export default function DuplicatesScreen() {
             <Text className="mt-1 font-inter text-[14px] text-on-surface-variant">Every document is unique.</Text>
           </View>
         ) : (
-          visible.map((group) => (
-            <View key={group.join()} className="mb-4 rounded-3xl bg-surface-container-lowest p-3">
-              <Text className="mb-2 px-1 font-inter-semibold text-[13px] text-on-surface-variant">
-                {group.length} look the same · tap the one to keep
-              </Text>
-              {group.map((id) => {
-                const doc = byId(id)!;
-                return (
-                  <Pressable
-                    key={id}
-                    onPress={() => keepOnly(group, id)}
-                    className="mb-1 flex-row items-center gap-3 rounded-2xl p-2 active:bg-surface-container"
-                  >
-                    <Image
-                      source={{ uri: doc.image }}
-                      className="h-14 w-11 rounded-lg bg-surface-container"
-                      resizeMode="cover"
-                    />
-                    <View className="min-w-0 flex-1">
-                      <Text className="font-inter-semibold text-[15px] text-on-surface" numberOfLines={1}>
-                        {doc.title}
-                      </Text>
-                      <Text className="font-inter text-[12px] text-on-surface-variant" numberOfLines={1}>
-                        {doc.meta}
-                      </Text>
+          visible.map((group) => {
+            const key = groupKey(group);
+            const keepId = keepChoice[key] ?? null;
+            return (
+              <View key={key} className="mb-4 rounded-3xl bg-surface-container-lowest p-3">
+                <Text className="mb-2 px-1 font-inter-semibold text-[13px] text-on-surface-variant">
+                  {group.length} look the same. Choose the one to keep.
+                </Text>
+                {group.map((id) => {
+                  const doc = byId(id)!;
+                  const chosen = keepId === id;
+                  return (
+                    <View
+                      key={id}
+                      className={`mb-1 flex-row items-center rounded-2xl ${chosen ? 'bg-surface-container' : ''}`}
+                    >
+                      <Pressable
+                        onPress={() => setKeepChoice((c) => ({ ...c, [key]: id }))}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: chosen }}
+                        accessibilityLabel={`Keep ${doc.title}`}
+                        className="min-w-0 flex-1 flex-row items-center gap-3 p-2 active:opacity-70"
+                      >
+                        <View
+                          className={`h-6 w-6 items-center justify-center rounded-full border-2 ${
+                            chosen ? 'border-primary bg-primary' : 'border-outline-variant'
+                          }`}
+                        >
+                          {chosen ? <Icon name="check" size={15} className="text-on-primary" /> : null}
+                        </View>
+                        <Image
+                          source={{ uri: doc.image }}
+                          className="h-14 w-11 rounded-lg bg-surface-container"
+                          resizeMode="cover"
+                        />
+                        <View className="min-w-0 flex-1">
+                          <Text className="font-inter-semibold text-[15px] text-on-surface" numberOfLines={1}>
+                            {doc.title}
+                          </Text>
+                          <Text className="font-inter text-[12px] text-on-surface-variant" numberOfLines={1}>
+                            {[doc.meta, `${doc.pages} page${doc.pages === 1 ? '' : 's'}`].filter(Boolean).join('  ·  ')}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => router.push(`/document/${id}`)}
+                        accessibilityLabel={`View ${doc.title}`}
+                        className="mr-1 h-11 w-11 items-center justify-center rounded-full active:bg-surface-container-high"
+                      >
+                        <Icon name="visibility" size={20} className="text-on-surface-variant" />
+                      </Pressable>
                     </View>
-                    <Text className="font-inter-semibold text-[13px] text-primary">Keep</Text>
+                  );
+                })}
+                <View className="mt-2 flex-row gap-2">
+                  <Pressable
+                    onPress={() => setDismissed((d) => [...d, key])}
+                    className="h-11 flex-1 items-center justify-center rounded-full border border-outline-variant active:bg-surface-container"
+                  >
+                    <Text className="font-inter-semibold text-[14px] text-on-surface">Not duplicates</Text>
                   </Pressable>
-                );
-              })}
-            </View>
-          ))
+                  <Pressable
+                    onPress={() => keepId && keepOnly(group, keepId)}
+                    disabled={!keepId}
+                    className={`h-11 flex-[1.4] flex-row items-center justify-center gap-1.5 rounded-full bg-on-surface px-3 active:opacity-85 ${
+                      keepId ? '' : 'opacity-40'
+                    }`}
+                  >
+                    <Icon name="delete-outline" size={18} className="text-surface" />
+                    <Text className="font-inter-semibold text-[14px] text-surface" numberOfLines={1}>
+                      {keepId ? `Delete ${group.length - 1} other${group.length - 1 === 1 ? '' : 's'}` : 'Choose one first'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })
         )}
       </ScrollView>
     </View>

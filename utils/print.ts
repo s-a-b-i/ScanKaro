@@ -6,9 +6,13 @@ import * as Print from 'expo-print';
 import { imagesToSheets, PagesPerSheet } from './pdf';
 
 export async function printPages(pageUris: string[], title: string, perSheet: PagesPerSheet) {
-  const pdf = await imagesToSheets(pageUris, title, perSheet);
+  await printPdf((await imagesToSheets(pageUris, title, perSheet)).uri);
+}
+
+/** Prints a ready PDF; closing the print dialog is not an error. */
+export async function printPdf(uri: string) {
   try {
-    await Print.printAsync({ uri: pdf.uri });
+    await Print.printAsync({ uri });
   } catch (error) {
     // Closing the print dialog is not an error.
     const message = error instanceof Error ? error.message : String(error);

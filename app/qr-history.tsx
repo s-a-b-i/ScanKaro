@@ -77,7 +77,7 @@ export default function QrHistoryScreen() {
         ListHeaderComponent={
           <View className="mb-6 mt-4">
             <Text className="font-inter-semibold text-[34px] leading-[38px] tracking-[-1.2px] text-on-surface">
-              Scan history
+              QR history
             </Text>
             <Text className="mt-2 font-inter text-[15px] leading-[21px] text-on-surface-variant">
               QR codes and barcodes you scanned, saved on this phone.
@@ -89,7 +89,18 @@ export default function QrHistoryScreen() {
             <View className="h-16 w-16 items-center justify-center rounded-full bg-surface-container">
               <Icon name="history" size={30} className="text-on-surface-variant" />
             </View>
-            <Text className="mt-4 font-inter-semibold text-[18px] text-on-surface">No scans yet</Text>
+            <Text className="mt-4 font-inter-semibold text-[18px] text-on-surface">No codes scanned yet</Text>
+            <Text className="mt-1 text-center font-inter text-[14px] text-on-surface-variant">
+              QR codes and barcodes you scan appear here.
+            </Text>
+            <Pressable
+              onPress={() => router.push('/qr')}
+              accessibilityRole="button"
+              className="mt-5 h-12 flex-row items-center gap-2 rounded-full bg-on-surface px-6 active:opacity-85"
+            >
+              <Icon name="qr-code-scanner" size={20} className="text-surface" />
+              <Text className="font-inter-semibold text-[16px] text-surface">Scan a code</Text>
+            </Pressable>
           </View>
         }
         ItemSeparatorComponent={() => <View className="h-2.5" />}

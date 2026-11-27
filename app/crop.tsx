@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ComponentProps, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +42,8 @@ export default function CropScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { currentPageUri, currentPageCorners, pageCount, activeIndex, updatePage } = useScan();
+  // from=enhance: return to that Enhance. filter: the scan mode's filter (e.g. gray for receipts).
+  const { from, filter } = useLocalSearchParams<{ from?: string; filter?: string }>();
 
   const cropRef = useRef<CropFrameEditorRef>(null);
   const [busy, setBusy] = useState<null | 'crop' | 'rotate'>(null);
@@ -103,7 +105,12 @@ export default function CropScreen() {
         const croppedUri = await cropDocumentFromUri(currentPageUri, corners);
         updatePage(activeIndex, croppedUri);
       }
-      router.push('/enhance');
+      if (from === 'enhance' && router.canGoBack()) {
+        // Back to the same Enhance: keeps its filter and the originals it can restore.
+        router.back();
+      } else {
+        router.push(filter ? { pathname: '/enhance', params: { filter } } : '/enhance');
+      }
     } catch (error) {
       Alert.alert('Crop failed', error instanceof Error ? error.message : 'Could not straighten this page.');
     } finally {

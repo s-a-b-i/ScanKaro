@@ -441,8 +441,11 @@ export const localDocumentService = {
     }
     if (changed) await mutate(() => undefined); // persists the cached fingerprints
 
+    // Empty documents never match ([].every would say every pair of them is "the same").
     const same = (a: string[], b: string[]) =>
-      a.length === b.length && a.every((h, i) => h && b[i] && hammingHex(h, b[i]) <= DUPLICATE_DISTANCE);
+      a.length > 0 &&
+      a.length === b.length &&
+      a.every((h, i) => h && b[i] && hammingHex(h, b[i]) <= DUPLICATE_DISTANCE);
     const groups: string[][] = [];
     const used = new Set<string>();
     for (const a of docs) {

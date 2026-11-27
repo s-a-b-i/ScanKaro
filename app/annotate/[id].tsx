@@ -17,6 +17,7 @@ import { DraggableMark } from '../../components/annotate/DraggableMark';
 import { InkCanvas, InkTool, ViewTransform } from '../../components/annotate/InkCanvas';
 import { SignaturePad } from '../../components/annotate/SignaturePad';
 import { Icon } from '../../components/Icon';
+import { useToast } from '../../components/Toast';
 import { GlassBackground } from '../../components/Glass';
 import { KeyboardAvoid } from '../../components/KeyboardAvoid';
 import { LoadingOverlay } from '../../components/LoadingOverlay';
@@ -84,7 +85,8 @@ export default function AnnotateScreen() {
   const { colors } = useTheme();
   const { refreshDocuments } = useApp();
   // `tool`: open straight into a tool from the Tools tab ("erase" or "sign").
-  const { id, page, tool: startTool } = useLocalSearchParams<{ id: string; page?: string; tool?: string }>();
+  const { id, page, tool: startTool, from } = useLocalSearchParams<{ id: string; page?: string; tool?: string; from?: string }>();
+  const toast = useToast();
   const pageIndex = Number(page ?? 0) || 0;
 
   const [pageUri, setPageUri] = useState<string | null>(null);
@@ -297,7 +299,14 @@ export default function AnnotateScreen() {
         await localDocumentService.saveOcrText(id, '');
       }
       await refreshDocuments();
-      goBackOr(router, `/document/${id}`);
+      toast.show(`Page ${pageIndex + 1} saved`);
+      if (from === 'tools') {
+        // Opened from Tools: show the signed/cleaned document (to check or share it),
+        // instead of silently dropping back to the tools grid.
+        router.replace(`/document/${id}`);
+      } else {
+        goBackOr(router, `/document/${id}`);
+      }
     } catch (error) {
       Alert.alert('Could not save', error instanceof Error ? error.message : 'Please try again.');
     } finally {

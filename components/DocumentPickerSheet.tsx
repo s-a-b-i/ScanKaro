@@ -1,8 +1,9 @@
 /** Pick one saved document for a tool (Extract text, To Excel, Sign, Print…). */
-import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useApp } from '../context/AppProvider';
+import { useStartScan } from '../hooks/useStartScan';
 import type { DocumentItem } from '../types';
 import { GlassBackground } from './Glass';
 import { Icon } from './Icon';
@@ -21,7 +22,8 @@ type Props = {
 
 export function DocumentPickerSheet({ title, onCancel, onPick }: Props) {
   const insets = useSafeAreaInsets();
-  const { documents } = useApp();
+  const { documents, loading } = useApp();
+  const startScan = useStartScan();
 
   return (
     <Modal visible={title !== null} transparent animationType="slide" onRequestClose={onCancel}>
@@ -30,13 +32,42 @@ export function DocumentPickerSheet({ title, onCancel, onPick }: Props) {
         <View className="max-h-[80%] overflow-hidden rounded-t-[32px] pt-3" style={{ paddingBottom: insets.bottom + 16 }}>
           <GlassBackground radius={32} variant="sheet" topOnly />
           <View className="mb-3 h-1 w-10 self-center rounded-full bg-outline-variant" />
-          <Text className="mb-3 px-5 font-inter-semibold text-[22px] tracking-[-0.4px] text-on-surface">{title}</Text>
-          {documents.length === 0 ? (
-            <View className="items-center px-5 py-10">
+          <View className="mb-3 flex-row items-center gap-2 pl-5 pr-3">
+            <Text className="flex-1 font-inter-semibold text-[22px] tracking-[-0.4px] text-on-surface" numberOfLines={1}>
+              {title}
+            </Text>
+            <Pressable
+              onPress={onCancel}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={6}
+              className="h-11 w-11 items-center justify-center rounded-full active:bg-surface-container"
+            >
+              <Icon name="close" size={22} className="text-on-surface-variant" />
+            </Pressable>
+          </View>
+          {loading ? (
+            <View className="items-center py-12">
+              <ActivityIndicator color="#8e8e93" />
+            </View>
+          ) : documents.length === 0 ? (
+            <View className="items-center px-5 py-8">
               <Icon name="description" size={40} className="text-on-surface-variant" />
-              <Text className="mt-3 text-center font-inter text-[15px] text-on-surface-variant">
-                No documents yet. Scan or import something first.
+              <Text className="mt-3 font-inter-semibold text-[17px] text-on-surface">No documents yet</Text>
+              <Text className="mt-1 text-center font-inter text-[14px] text-on-surface-variant">
+                Scan a page or import photos, then come back to this tool.
               </Text>
+              <Pressable
+                onPress={() => {
+                  onCancel();
+                  startScan();
+                }}
+                accessibilityRole="button"
+                className="mt-5 h-12 flex-row items-center gap-2 rounded-full bg-on-surface px-6 active:opacity-85"
+              >
+                <Icon name="document-scanner" size={20} className="text-surface" />
+                <Text className="font-inter-semibold text-[16px] text-surface">Scan or import</Text>
+              </Pressable>
             </View>
           ) : (
             <ScrollView contentContainerClassName="px-5 pb-2">

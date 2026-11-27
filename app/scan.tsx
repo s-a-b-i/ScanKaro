@@ -27,6 +27,22 @@ type IconName = ComponentProps<typeof Icon>['name'];
 
 const SCAN_MODES = ['single', 'batch', 'id', 'receipt', 'book', 'card', 'whiteboard', 'slides', 'timestamp'] as const;
 type ScanMode = (typeof SCAN_MODES)[number];
+/** Headline and one-line instruction for each mode, so the screen says what will happen. */
+const MODE_COPY: Record<ScanMode, { title: string; hint: string }> = {
+  single: {
+    title: 'Ready to scan\nyour document?',
+    hint: 'Edges are found and the page is straightened automatically. You can fine-tune the crop and lighting next.',
+  },
+  batch: { title: 'Scan several\npages at once', hint: 'Capture up to 20 pages in a row. They are saved together as one document.' },
+  id: { title: 'Scan both sides\nof the card', hint: 'Capture the front, then the back. Both sides are placed on one page, like a photocopy.' },
+  receipt: { title: 'Scan a\nreceipt', hint: 'Faded print is made darker and easier to read.' },
+  book: { title: 'Scan an\nopen book', hint: 'Photograph two facing pages at once. Each photo is split into a left and a right page.' },
+  card: { title: 'Scan a\nbusiness card', hint: 'The name, phone, email and company are read from the card, ready to save as a contact.' },
+  whiteboard: { title: 'Scan a\nwhiteboard', hint: 'Glare and shadows are removed and the ink is made sharper.' },
+  slides: { title: 'Scan\nslides', hint: 'Photos of a screen or projector are straightened and their colours cleaned up.' },
+  timestamp: { title: 'Scan with\ndate and time', hint: "Each page gets today's date and time printed in the corner." },
+};
+
 /** Modes that capture several pages and then open Enhance with a matching filter. */
 const MULTI_MODES: ScanMode[] = ['batch', 'book', 'whiteboard', 'slides', 'timestamp'];
 
@@ -93,7 +109,7 @@ export default function ScanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { folderId: folderParam, mode: modeParam } = useLocalSearchParams<{ folderId?: string; mode?: string }>();
-  const { pageCount, setFolderId, addPage, reset } = useScan();
+  const { pageCount, setFolderId, addPage, discard } = useScan();
   const { colors } = useTheme();
 
   const [scanning, setScanning] = useState(false);
@@ -163,16 +179,42 @@ export default function ScanScreen() {
   /** Puts front and back on one page, then opens Enhance (No Shadow keeps card photos natural). */
   const finishIdCard = async (cardUris: string[]) => {
     if (cardUris.length < 2) {
-      Alert.alert('Scan both sides', 'Capture the front and then the back of the card (2 pages).');
+      // Only one side captured: keep it, and let the user add the back or go on without it.
+      const front = cardUris[0];
+      Alert.alert('Only one side captured', 'Scan the back of the card too, or use just this side.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Use front only',
+          onPress: () => {
+            addPage(front);
+            router.push({ pathname: '/enhance', params: { filter: 'noShadow' } });
+          },
+        },
+        {
+          text: 'Scan the back',
+          onPress: async () => {
+            try {
+              const back = await scanDocumentsNative({ croppedImageQuality: 92, maxNumDocuments: 1 });
+              if (back?.length) await finishIdCard([front, back[0]]);
+            } catch (error) {
+              Alert.alert('Scanner error', error instanceof Error ? error.message : 'Could not open the scanner.');
+            }
+          },
+        },
+      ]);
       return;
     }
+    setBusyMessage('Putting both sides on one page…');
     setImporting(true);
     try {
       const page = await composeIdCard(cardUris[0], cardUris[1]);
       addPage(page);
       router.push({ pathname: '/enhance', params: { filter: 'noShadow' } });
+    } catch (error) {
+      Alert.alert('Could not combine the sides', error instanceof Error ? error.message : 'Please scan the card again.');
     } finally {
       setImporting(false);
+      setBusyMessage('Finding page edges…');
     }
   };
 
@@ -266,7 +308,8 @@ export default function ScanScreen() {
       } else {
         // Crop screen opens with the frame already on the page; Next crops and straightens.
         addPage(page.uri, page.corners);
-        router.push('/crop');
+        // Receipts keep their Gray filter after the crop step, like camera scans.
+        router.push(mode === 'receipt' ? { pathname: '/crop', params: { filter: 'gray' } } : '/crop');
       }
     } catch (error) {
       Alert.alert('Import failed', error instanceof Error ? error.message : 'Could not import this photo.');
@@ -283,7 +326,7 @@ export default function ScanScreen() {
           text: 'Discard',
           style: 'destructive',
           onPress: () => {
-            reset();
+            discard();
             goBackOr(router, '/(tabs)');
           },
         },
@@ -328,12 +371,10 @@ export default function ScanScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text className="mt-4 font-inter-semibold text-[38px] leading-[42px] tracking-[-1.4px] text-on-surface">
-          {'Ready to scan\nyour document?'}
+          {MODE_COPY[mode].title}
         </Text>
         <Text className="mb-7 mt-3 font-inter text-[15px] leading-[21px] text-on-surface-variant">
-          {nativeScanner
-            ? 'Edges are found and the page is straightened automatically. You can fine-tune the crop and lighting next.'
-            : getNativeScannerUnavailableMessage()}
+          {nativeScanner ? MODE_COPY[mode].hint : getNativeScannerUnavailableMessage()}
         </Text>
 
         <View className="mb-2.5 flex-row gap-2.5">

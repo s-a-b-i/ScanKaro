@@ -54,7 +54,15 @@ export default function BusinessCardScreen() {
     if (!uri) return;
     let cancelled = false;
     recognizePages([uri], OCR_LANGUAGES[0])
-      .then((text) => !cancelled && setContact(parseCardText(text)))
+      .then((text) => {
+        if (cancelled) return;
+        const found = parseCardText(text);
+        setContact(found);
+        const empty = !found.name && !found.company && !found.email && !found.phones.some(Boolean);
+        if (empty) {
+          Alert.alert("Couldn't read this card", 'No details were found. Fill them in yourself, or scan the card again in better light.');
+        }
+      })
       .catch(() => {
         if (!cancelled) Alert.alert('Could not read the card', 'Fill in the details yourself, or scan it again.');
       })
