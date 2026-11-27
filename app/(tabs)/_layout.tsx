@@ -9,6 +9,7 @@ import { GlassReflections } from '../../components/Glass';
 import { Icon } from '../../components/Icon';
 import { TAB_BAR_GAP, TAB_BAR_HEIGHT, shadows } from '../../components/ui';
 import { useTheme } from '../../constants/theme';
+import { useStartScan } from '../../hooks/useStartScan';
 
 type IconName = ComponentProps<typeof Icon>['name'];
 
@@ -25,6 +26,7 @@ const SCAN_SIZE = TAB_BAR_HEIGHT;
 function GlassTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const startScan = useStartScan();
   const bottom = Math.max(insets.bottom, TAB_BAR_GAP);
   const { isDark } = useTheme();
   const radius = TAB_BAR_HEIGHT / 2;
@@ -104,7 +106,7 @@ function GlassTabBar({ state, navigation }: any) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Scan document"
-        onPress={() => router.push('/scan')}
+        onPress={() => startScan()}
         className="items-center justify-center overflow-hidden rounded-full bg-on-surface active:opacity-85"
         style={[{ width: SCAN_SIZE, height: SCAN_SIZE }, shadows.lifted]}
       >
