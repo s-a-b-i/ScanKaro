@@ -6,6 +6,17 @@ export const appConfig = {
     baseUrl: process.env.EXPO_PUBLIC_API_URL ?? '',
     enabled: Boolean(process.env.EXPO_PUBLIC_API_URL),
   },
+  /**
+   * Where documents live. "local" (default): on the device, works offline, no server needed.
+   * "cloud": the ScanKaro backend (needs EXPO_PUBLIC_API_URL and a running server).
+   */
+  storage: {
+    mode: (process.env.EXPO_PUBLIC_STORAGE === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
+  },
+  /** True only when cloud storage is chosen and an API URL is configured. */
+  cloud: {
+    enabled: process.env.EXPO_PUBLIC_STORAGE === 'cloud' && Boolean(process.env.EXPO_PUBLIC_API_URL),
+  },
   cloudinary: {
     cloudName: process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME ?? '',
     uploadPreset: process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? '',

@@ -1,39 +1,109 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ComponentProps, useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '../components/Icon';
+import { GlassBackground } from '../components/Glass';
+import { LoadingOverlay } from '../components/LoadingOverlay';
 import { FallbackCameraScan } from '../components/scan/FallbackCameraScan';
+import { pastel, PastelName } from '../constants/pastel';
+import { useTheme } from '../constants/theme';
 import { useScan } from '../context/ScanProvider';
 import {
   getNativeScannerUnavailableMessage,
   isNativeDocumentScannerAvailable,
   scanDocumentsNative,
 } from '../services/nativeDocumentScanner';
-import { pickScanImage } from '../utils/scanPicker';
+import { cropDocumentFromUri } from '../utils/documentScan';
+import { importFromGallery, prepareGalleryImage } from '../utils/galleryImport';
+import { composeIdCard } from '../utils/idCard';
+import { splitSpread } from '../utils/imageFiles';
+import { pickImages } from '../utils/scanPicker';
+import { formatStamp, stampImage } from '../utils/timestamp';
 import { goBackOr } from '../utils/navigation';
+
+type IconName = ComponentProps<typeof Icon>['name'];
+
+const SCAN_MODES = ['single', 'batch', 'id', 'receipt', 'book', 'card', 'whiteboard', 'slides', 'timestamp'] as const;
+type ScanMode = (typeof SCAN_MODES)[number];
+/** Modes that capture several pages and then open Enhance with a matching filter. */
+const MULTI_MODES: ScanMode[] = ['batch', 'book', 'whiteboard', 'slides', 'timestamp'];
+
+function ModeCard({
+  icon,
+  title,
+  subtitle,
+  color,
+  selected,
+  onPress,
+}: {
+  icon: IconName;
+  title: string;
+  subtitle: string;
+  color: PastelName;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { isDark } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      className={`flex-1 rounded-[24px] border-2 p-3.5 active:opacity-80 ${
+        selected ? 'border-on-surface' : 'border-transparent'
+      }`}
+      style={{ backgroundColor: pastel(color, isDark) }}
+    >
+      <View className="mb-3 flex-row items-start justify-between">
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-white">
+          <Icon name={icon} size={20} className="text-[#111111]" />
+        </View>
+        <View
+          className={`h-6 w-6 items-center justify-center rounded-full border-2 ${
+            selected ? 'border-on-surface bg-on-surface' : 'border-on-surface/30'
+          }`}
+        >
+          {selected ? <Icon name="check" size={14} className="text-surface" /> : null}
+        </View>
+      </View>
+      <Text className="font-inter-semibold text-[16px] tracking-tight text-on-surface" numberOfLines={1}>
+        {title}
+      </Text>
+      <Text className="mt-0.5 font-inter text-[12px] text-on-surface-variant" numberOfLines={1}>
+        {subtitle}
+      </Text>
+    </Pressable>
+  );
+}
+
+function Tip({ icon, text }: { icon: IconName; text: string }) {
+  return (
+    <View className="flex-row items-center gap-3">
+      <View className="h-8 w-8 items-center justify-center rounded-full bg-surface-container">
+        <Icon name={icon} size={16} className="text-on-surface-variant" />
+      </View>
+      <Text className="flex-1 font-inter text-[14px] text-on-surface-variant">{text}</Text>
+    </View>
+  );
+}
 
 export default function ScanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { folderId: folderParam } = useLocalSearchParams<{ folderId?: string }>();
+  const { folderId: folderParam, mode: modeParam } = useLocalSearchParams<{ folderId?: string; mode?: string }>();
   const { pageCount, setFolderId, addPage, reset } = useScan();
+  const { colors } = useTheme();
 
   const [scanning, setScanning] = useState(false);
-  const [batchMode, setBatchMode] = useState(false);
+  const [mode, setMode] = useState<ScanMode>(() =>
+    modeParam && (SCAN_MODES as readonly string[]).includes(modeParam) ? (modeParam as ScanMode) : 'single',
+  );
+  const batchMode = mode === 'batch';
   const [showFallbackCamera, setShowFallbackCamera] = useState(false);
-  const launchedRef = useRef(false);
+  const [importing, setImporting] = useState(false);
+  const [busyMessage, setBusyMessage] = useState('Finding page edges…');
 
   const nativeScanner = isNativeDocumentScannerAvailable();
 
@@ -50,44 +120,159 @@ export default function ScanScreen() {
     try {
       const images = await scanDocumentsNative({
         croppedImageQuality: 92,
-        maxNumDocuments: batchMode ? 20 : 1,
+        maxNumDocuments: MULTI_MODES.includes(mode) ? 20 : mode === 'id' ? 2 : 1,
       });
 
-      if (!images?.length) {
-        if (!launchedRef.current) {
-          goBackOr(router, '/(tabs)');
-        }
+      // Cancelled: stay on this screen so the user can try again or import instead.
+      if (!images?.length) return;
+
+      if (mode === 'id') {
+        await finishIdCard(images);
+        return;
+      }
+      if (mode === 'card') {
+        router.push({ pathname: '/card', params: { uri: images[0] } });
+        return;
+      }
+      if (mode === 'book') {
+        await finishBook(images);
+        return;
+      }
+      if (mode === 'whiteboard' || mode === 'slides' || mode === 'timestamp') {
+        await finishSpecial(images);
         return;
       }
 
       images.forEach((uri) => addPage(uri));
 
-      if (images.length === 1 && !batchMode) {
-        router.push('/crop');
-      } else {
-        router.push('/export');
+      if (mode === 'receipt') {
+        // Gray boosts faded thermal print without the colour shifts of Enhance.
+        router.push({ pathname: '/enhance', params: { filter: 'gray' } });
+        return;
       }
+
+      // The native scanner already found, cropped and straightened the pages.
+      router.push('/enhance');
     } catch (error) {
-      Alert.alert(
-        'Scanner error',
-        error instanceof Error ? error.message : 'Could not open the document scanner.',
-      );
+      Alert.alert('Scanner error', error instanceof Error ? error.message : 'Could not open the document scanner.');
     } finally {
       setScanning(false);
     }
-  }, [addPage, batchMode, router, scanning]);
+  }, [addPage, mode, router, scanning]);
 
-  useEffect(() => {
-    if (!nativeScanner || launchedRef.current) return;
-    launchedRef.current = true;
-    void openNativeScanner();
-  }, [nativeScanner, openNativeScanner]);
+  /** Puts front and back on one page, then opens Enhance (No Shadow keeps card photos natural). */
+  const finishIdCard = async (cardUris: string[]) => {
+    if (cardUris.length < 2) {
+      Alert.alert('Scan both sides', 'Capture the front and then the back of the card (2 pages).');
+      return;
+    }
+    setImporting(true);
+    try {
+      const page = await composeIdCard(cardUris[0], cardUris[1]);
+      addPage(page);
+      router.push({ pathname: '/enhance', params: { filter: 'noShadow' } });
+    } finally {
+      setImporting(false);
+    }
+  };
 
-  const importFromGallery = async () => {
-    const uri = await pickScanImage();
-    if (!uri) return;
-    addPage(uri);
-    router.push(batchMode ? '/export' : '/crop');
+  /** Whiteboard and Slides open Enhance with their filter; Timestamp stamps the date and time on each page. */
+  const finishSpecial = async (uris: string[]) => {
+    if (mode === 'timestamp') {
+      setBusyMessage('Adding date and time…');
+      setImporting(true);
+      try {
+        const label = formatStamp();
+        for (const uri of uris) addPage((await stampImage(uri, label)).uri);
+      } catch (error) {
+        Alert.alert('Could not add the timestamp', error instanceof Error ? error.message : 'Please try again.');
+        return;
+      } finally {
+        setImporting(false);
+        setBusyMessage('Finding page edges…');
+      }
+      router.push('/enhance');
+      return;
+    }
+    uris.forEach((uri) => addPage(uri));
+    router.push({ pathname: '/enhance', params: { filter: mode } });
+  };
+
+  /** Each two-page spread becomes two pages (left, then right). */
+  const finishBook = async (spreads: string[]) => {
+    setBusyMessage('Splitting pages…');
+    setImporting(true);
+    try {
+      for (const spread of spreads) {
+        const [left, right] = await splitSpread(spread);
+        addPage(left.uri);
+        addPage(right.uri);
+      }
+      router.push('/enhance');
+    } catch (error) {
+      Alert.alert('Could not split pages', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setImporting(false);
+      setBusyMessage('Finding page edges…');
+    }
+  };
+
+  const handleImportFromGallery = async () => {
+    if (importing) return;
+    if (mode === 'id') {
+      // Pick the front, then the back.
+      const photos = await pickImages(2);
+      if (photos.length === 0) return;
+      if (photos.length < 2) {
+        Alert.alert('Pick both sides', 'Select two photos: the front and then the back of the card.');
+        return;
+      }
+      setImporting(true);
+      try {
+        const cards = [];
+        for (const photo of photos.slice(0, 2)) {
+          const prepared = await prepareGalleryImage(photo);
+          cards.push(prepared.corners ? await cropDocumentFromUri(prepared.uri, prepared.corners) : prepared.uri);
+        }
+        setImporting(false);
+        await finishIdCard(cards);
+      } catch (error) {
+        Alert.alert('Import failed', error instanceof Error ? error.message : 'Could not import these photos.');
+      } finally {
+        setImporting(false);
+      }
+      return;
+    }
+    try {
+      // Opens the gallery directly, then finds the page edges in the chosen photo.
+      const page = await importFromGallery(() => setImporting(true));
+      if (!page) return;
+
+      if (mode === 'card' || mode === 'book' || mode === 'whiteboard' || mode === 'slides' || mode === 'timestamp') {
+        // Crop to the detected edges straight away, then continue like a camera scan.
+        const uri = page.corners ? await cropDocumentFromUri(page.uri, page.corners) : page.uri;
+        setImporting(false);
+        if (mode === 'card') router.push({ pathname: '/card', params: { uri } });
+        else if (mode === 'book') await finishBook([uri]);
+        else await finishSpecial([uri]);
+        return;
+      }
+
+      if (batchMode) {
+        // No crop screen in batch mode: crop to the detected page straight away.
+        const uri = page.corners ? await cropDocumentFromUri(page.uri, page.corners) : page.uri;
+        addPage(uri);
+        router.push('/enhance');
+      } else {
+        // Crop screen opens with the frame already on the page; Next crops and straightens.
+        addPage(page.uri, page.corners);
+        router.push('/crop');
+      }
+    } catch (error) {
+      Alert.alert('Import failed', error instanceof Error ? error.message : 'Could not import this photo.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleClose = () => {
@@ -109,210 +294,183 @@ export default function ScanScreen() {
   };
 
   if (showFallbackCamera && !nativeScanner) {
-    return <FallbackCameraScan batchMode={batchMode} onClose={handleClose} />;
+    return <FallbackCameraScan batchMode={mode !== 'single'} onClose={handleClose} />;
   }
 
+  const openCamera = () => (nativeScanner ? void openNativeScanner() : setShowFallbackCamera(true));
+
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Pressable onPress={handleClose} style={styles.iconBtn}>
-          <Icon name="close" size={24} className="text-on-surface" />
+    <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
+      <LoadingOverlay visible={importing} message={busyMessage} />
+
+      {/* Top bar */}
+      <View className="h-16 flex-row items-center justify-between px-5">
+        <Pressable
+          onPress={handleClose}
+          hitSlop={6}
+          accessibilityLabel="Close"
+          className="h-12 w-12 items-center justify-center overflow-hidden rounded-full active:opacity-70"
+        >
+            <GlassBackground radius={24} />
+          <Icon name="close" size={22} className="text-on-surface" />
         </Pressable>
-        <Text style={styles.title}>Document Scanner</Text>
-        <View style={styles.iconBtn} />
+        {pageCount > 0 ? (
+          <View className="rounded-full bg-surface-container px-3 py-1.5">
+            <Text className="font-inter-semibold text-[13px] text-on-surface">
+              {pageCount} page{pageCount === 1 ? '' : 's'} added
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.body}>
-        {scanning ? (
-          <>
-            <ActivityIndicator size="large" color="#00685f" />
-            <Text style={styles.subtitle}>Opening native scanner…</Text>
-            <Text style={styles.hint}>
-              Live edge detection runs in native Vision / ML Kit with perspective correction.
-            </Text>
-          </>
-        ) : (
-          <>
-            <View style={styles.heroIcon}>
-              <Icon name="document-scanner" size={48} className="text-primary" />
-            </View>
-            <Text style={styles.subtitle}>
-              {nativeScanner
-                ? 'Native live edge detection'
-                : 'Development build required'}
-            </Text>
-            <Text style={styles.hint}>
-              {nativeScanner
-                ? 'The scanner shows a live outline around your document, then crops and straightens it automatically — like CamScanner.'
-                : getNativeScannerUnavailableMessage()}
-            </Text>
-          </>
-        )}
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text className="mt-4 font-inter-semibold text-[38px] leading-[42px] tracking-[-1.4px] text-on-surface">
+          {'Ready to scan\nyour document?'}
+        </Text>
+        <Text className="mb-7 mt-3 font-inter text-[15px] leading-[21px] text-on-surface-variant">
+          {nativeScanner
+            ? 'Edges are found and the page is straightened automatically. You can fine-tune the crop and lighting next.'
+            : getNativeScannerUnavailableMessage()}
+        </Text>
 
-        <View style={styles.modeToggle}>
-          <Pressable
-            onPress={() => setBatchMode(false)}
-            style={[styles.modeBtn, !batchMode && styles.modeBtnActive]}
-          >
-            <Text style={[styles.modeText, !batchMode && styles.modeTextActive]}>Single</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setBatchMode(true)}
-            style={[styles.modeBtn, batchMode && styles.modeBtnActive]}
-          >
-            <Text style={[styles.modeText, batchMode && styles.modeTextActive]}>Batch</Text>
-          </Pressable>
+        <View className="mb-2.5 flex-row gap-2.5">
+          <ModeCard
+            icon="description"
+            title="Single page"
+            subtitle="One page at a time"
+            color="blue"
+            selected={mode === 'single'}
+            onPress={() => setMode('single')}
+          />
+          <ModeCard
+            icon="auto-stories"
+            title="Batch"
+            subtitle="Up to 20 pages"
+            color="yellow"
+            selected={mode === 'batch'}
+            onPress={() => setMode('batch')}
+          />
+        </View>
+        <View className="mb-2.5 flex-row gap-2.5">
+          <ModeCard
+            icon="badge"
+            title="ID card"
+            subtitle="Both sides, one page"
+            color="green"
+            selected={mode === 'id'}
+            onPress={() => setMode('id')}
+          />
+          <ModeCard
+            icon="receipt-long"
+            title="Receipt"
+            subtitle="Long, faded slips"
+            color="pink"
+            selected={mode === 'receipt'}
+            onPress={() => setMode('receipt')}
+          />
+        </View>
+        <View className="mb-2.5 flex-row gap-2.5">
+          <ModeCard
+            icon="menu-book"
+            title="Book"
+            subtitle="Two pages at once"
+            color="blue"
+            selected={mode === 'book'}
+            onPress={() => setMode('book')}
+          />
+          <ModeCard
+            icon="contact-page"
+            title="Business card"
+            subtitle="Save as a contact"
+            color="yellow"
+            selected={mode === 'card'}
+            onPress={() => setMode('card')}
+          />
+        </View>
+        <View className="mb-2.5 flex-row gap-2.5">
+          <ModeCard
+            icon="developer-board"
+            title="Whiteboard"
+            subtitle="Clean board, bold ink"
+            color="green"
+            selected={mode === 'whiteboard'}
+            onPress={() => setMode('whiteboard')}
+          />
+          <ModeCard
+            icon="slideshow"
+            title="Slides"
+            subtitle="Screens and projectors"
+            color="pink"
+            selected={mode === 'slides'}
+            onPress={() => setMode('slides')}
+          />
+        </View>
+        <View className="mb-6 flex-row gap-2.5">
+          <ModeCard
+            icon="schedule"
+            title="Timestamp"
+            subtitle="Date and time on page"
+            color="blue"
+            selected={mode === 'timestamp'}
+            onPress={() => setMode('timestamp')}
+          />
+          <View className="flex-1" />
         </View>
 
-        {nativeScanner ? (
-          <Pressable
-            onPress={() => void openNativeScanner()}
-            disabled={scanning}
-            style={[styles.primaryBtn, scanning && styles.primaryBtnDisabled]}
-          >
-            <Icon name="photo-camera" size={22} className="text-on-primary" />
-            <Text style={styles.primaryBtnText}>Scan Document</Text>
-          </Pressable>
-        ) : (
-          <>
-            <Pressable
-              onPress={() => setShowFallbackCamera(true)}
-              style={styles.primaryBtn}
-            >
-              <Icon name="photo-camera" size={22} className="text-on-primary" />
-              <Text style={styles.primaryBtnText}>Use Basic Camera</Text>
-            </Pressable>
-            {Platform.OS !== 'web' ? (
-              <Text style={styles.buildHint}>
-                For CamScanner-style live edges: npx expo prebuild → npx expo run:android
-              </Text>
-            ) : null}
-          </>
-        )}
-
-        <Pressable onPress={() => void importFromGallery()} style={styles.secondaryBtn}>
-          <Icon name="photo-library" size={20} className="text-primary" />
-          <Text style={styles.secondaryBtnText}>Import from Gallery</Text>
+        <Pressable
+          onPress={() => router.push('/qr')}
+          className="mb-7 flex-row items-center gap-4 rounded-[28px] border border-outline-variant/60 bg-surface-container-lowest p-4 active:opacity-75"
+        >
+          <View className="h-12 w-12 items-center justify-center rounded-full bg-on-surface">
+            <Icon name="qr-code-scanner" size={22} className="text-surface" />
+          </View>
+          <View className="flex-1">
+            <Text className="font-inter-semibold text-[17px] text-on-surface">QR code &amp; barcode</Text>
+            <Text className="font-inter text-[13px] text-on-surface-variant">Links, Wi-Fi, contacts and products</Text>
+          </View>
+          <Icon name="chevron-right" size={24} className="text-on-surface-variant" />
         </Pressable>
+
+        <View className="gap-3.5">
+          <Tip icon="wb-sunny" text="Use good, even light and avoid glare" />
+          <Tip icon="contrast" text="Place the page on a darker, contrasting surface" />
+          <Tip icon="crop-free" text="Let the page fill most of the frame" />
+        </View>
+      </ScrollView>
+
+      {/* Actions */}
+      <View className="gap-3 overflow-hidden rounded-t-[28px] px-5 pt-4" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+        <GlassBackground radius={28} topOnly />
+        <Pressable
+          onPress={openCamera}
+          disabled={scanning}
+          className="h-[60px] flex-row items-center justify-center gap-2.5 rounded-full bg-on-surface active:opacity-85"
+        >
+          {scanning ? (
+            <ActivityIndicator color={colors.surface} />
+          ) : (
+            <Icon name="photo-camera" size={22} className="text-surface" />
+          )}
+          <Text className="font-inter-semibold text-[17px] text-surface">
+            {nativeScanner ? 'Open camera' : 'Use basic camera'}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void handleImportFromGallery()}
+          className="h-[60px] flex-row items-center justify-center gap-2.5 rounded-full border border-outline-variant active:bg-surface-container"
+        >
+          <Icon name="photo-library" size={21} className="text-on-surface" />
+          <Text className="font-inter-semibold text-[17px] text-on-surface">Import from gallery</Text>
+        </Pressable>
+        {!nativeScanner && Platform.OS !== 'web' ? (
+          <Text className="text-center font-inter text-[12px] text-on-surface-variant">
+            For live edge detection, use a development build (npx expo run:android).
+          </Text>
+        ) : null}
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#f7f9fb',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e0e3e5',
-    backgroundColor: '#fff',
-  },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 17,
-    color: '#191c1e',
-  },
-  body: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    gap: 12,
-  },
-  heroIcon: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#e6f4f2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 18,
-    color: '#191c1e',
-    textAlign: 'center',
-  },
-  hint: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    lineHeight: 21,
-    color: '#3d4947',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  modeToggle: {
-    flexDirection: 'row',
-    backgroundColor: '#eceef0',
-    borderRadius: 20,
-    padding: 3,
-    marginTop: 8,
-  },
-  modeBtn: {
-    paddingHorizontal: 22,
-    paddingVertical: 8,
-    borderRadius: 18,
-  },
-  modeBtnActive: {
-    backgroundColor: '#fff',
-  },
-  modeText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 14,
-    color: '#3d4947',
-  },
-  modeTextActive: {
-    color: '#00685f',
-    fontFamily: 'Inter_600SemiBold',
-  },
-  primaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#00685f',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 14,
-    marginTop: 16,
-  },
-  primaryBtnDisabled: {
-    opacity: 0.6,
-  },
-  primaryBtnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-    color: '#fff',
-  },
-  secondaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-  },
-  secondaryBtnText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 15,
-    color: '#00685f',
-  },
-  buildHint: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: '#3d4947',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-});

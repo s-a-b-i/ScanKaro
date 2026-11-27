@@ -1,15 +1,17 @@
 import { uploadService } from '../services';
+import { localDocumentService } from './local/library';
 
 export async function uploadScanPages(
   pages: string[],
   options: { title: string; folderId?: string | null; documentId?: string | null },
 ): Promise<{ documentId: string }> {
-  if (!uploadService) {
-    throw new Error('Upload service is not available');
+  if (pages.length === 0) {
+    throw new Error('No pages to save');
   }
 
-  if (pages.length === 0) {
-    throw new Error('No pages to upload');
+  // Offline-first: without cloud storage, documents are saved on the device.
+  if (!uploadService) {
+    return localDocumentService.savePages(pages, options);
   }
 
   let documentId: string | undefined = options.documentId ?? undefined;

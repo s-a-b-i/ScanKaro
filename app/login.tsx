@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '../components/Icon';
+import { shadows } from '../components/ui';
 import { appConfig } from '../constants/config';
 import { useApp } from '../context/AppProvider';
 import { useGoogleAuth } from '../hooks/useGoogleAuth';
@@ -101,7 +102,7 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-surface"
+      className="flex-1 bg-background"
       style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
     >
       <ScrollView
@@ -110,10 +111,10 @@ export default function LoginScreen() {
       >
         <View className="w-full max-w-[440px] gap-stack-lg">
           <View className="items-center">
-            <View className="mb-4 h-16 w-16 items-center justify-center rounded-xl bg-primary shadow-lg">
-              <Icon name="scanner" size={40} className="text-on-primary" />
+            <View className="mb-4 h-16 w-16 items-center justify-center rounded-3xl bg-primary">
+              <Icon name="document-scanner" size={34} className="text-on-primary" />
             </View>
-            <Text className="font-inter text-display-lg text-primary">ScanKaro</Text>
+            <Text className="font-inter-bold text-large-title text-on-surface">ScanKaro</Text>
             <Text className="mt-2 max-w-[320px] text-center font-inter text-body-lg text-on-surface-variant">
               {isLogin
                 ? 'Your documents, digitized and organized in seconds.'
@@ -121,7 +122,7 @@ export default function LoginScreen() {
             </Text>
           </View>
 
-          <View className="gap-stack-md overflow-hidden rounded-3xl border border-slate-100 bg-surface-container-lowest p-8 shadow-sm">
+          <View className="gap-stack-md rounded-4xl bg-surface-container-lowest p-6" style={shadows.soft}>
             {!isLogin ? (
               <View className="gap-1">
                 <Text className="ml-1 font-inter text-label-md text-on-surface-variant">Full Name</Text>
@@ -134,7 +135,7 @@ export default function LoginScreen() {
                     onChangeText={setName}
                     placeholder="Your name"
                     autoCapitalize="words"
-                    className="h-14 rounded-xl bg-surface-container-low pl-12 pr-4 font-inter text-body-lg text-on-surface"
+                    className="h-14 rounded-2xl bg-surface-container-low pl-12 pr-4 font-inter text-body-lg text-on-surface"
                     placeholderTextColor="#6d7a77"
                   />
                 </View>
@@ -153,7 +154,7 @@ export default function LoginScreen() {
                   placeholder="name@company.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  className="h-14 rounded-xl bg-surface-container-low pl-12 pr-4 font-inter text-body-lg text-on-surface"
+                  className="h-14 rounded-2xl bg-surface-container-low pl-12 pr-4 font-inter text-body-lg text-on-surface"
                   placeholderTextColor="#6d7a77"
                 />
               </View>
@@ -177,12 +178,13 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   placeholder="••••••••"
                   secureTextEntry={!showPassword}
-                  className="h-14 rounded-xl bg-surface-container-low pl-12 pr-12 font-inter text-body-lg text-on-surface"
+                  className="h-14 rounded-2xl bg-surface-container-low pl-12 pr-12 font-inter text-body-lg text-on-surface"
                   placeholderTextColor="#6d7a77"
                 />
                 <Pressable
                   onPress={() => setShowPassword((v) => !v)}
-                  className="absolute right-4 top-0 h-14 justify-center"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-2 top-0 h-14 w-11 items-center justify-center"
                 >
                   <Icon name={showPassword ? 'visibility-off' : 'visibility'} size={20} className="text-outline" />
                 </Pressable>
@@ -192,29 +194,29 @@ export default function LoginScreen() {
             <Pressable
               onPress={submit}
               disabled={busy}
-              className="mt-2 h-14 flex-row items-center justify-center gap-2 rounded-xl bg-primary active:opacity-90"
+              className="mt-2 h-14 flex-row items-center justify-center gap-2 rounded-full bg-primary active:opacity-85"
             >
               {busy ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <>
-                  <Text className="font-inter text-title-md text-on-primary">{submitLabel}</Text>
+                  <Text className="font-inter-semibold text-body-lg text-on-primary">{submitLabel}</Text>
                   <Icon name="arrow-forward" size={20} className="text-on-primary" />
                 </>
               )}
             </Pressable>
 
             <View className="flex-row items-center gap-4 py-2">
-              <View className="h-px flex-1 bg-outline-variant" />
-              <Text className="font-inter text-label-md uppercase tracking-wider text-outline">or continue with</Text>
-              <View className="h-px flex-1 bg-outline-variant" />
+              <View className="h-px flex-1 bg-outline-variant/50" />
+              <Text className="font-inter text-label-md text-on-surface-variant">or continue with</Text>
+              <View className="h-px flex-1 bg-outline-variant/50" />
             </View>
 
             <View className="flex-row gap-stack-md">
               <Pressable
                 onPress={promptGoogleSignIn}
                 disabled={busy}
-                className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-outline-variant bg-white active:bg-surface-container-low"
+                className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full border border-outline-variant/60 bg-surface-container-lowest active:bg-surface-container-low"
               >
                 <Image
                   source={{
@@ -226,7 +228,7 @@ export default function LoginScreen() {
               </Pressable>
               <Pressable
                 disabled
-                className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-outline-variant bg-surface-container-low opacity-50"
+                className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full border border-outline-variant/60 bg-surface-container-low opacity-50"
               >
                 <Icon name="phone-iphone" size={20} className="text-on-surface-variant" />
                 <Text className="font-inter text-body-sm font-medium text-on-surface-variant">Apple</Text>
@@ -239,13 +241,13 @@ export default function LoginScreen() {
               {isLogin ? "Don't have an account?" : 'Already have an account?'}
             </Text>
             <Pressable onPress={() => setIsLogin((v) => !v)}>
-              <Text className="ml-1 font-inter text-title-md text-primary">
+              <Text className="ml-1 font-inter-semibold text-body-sm text-primary">
                 {isLogin ? 'Sign up' : 'Login'}
               </Text>
             </Pressable>
           </View>
 
-          <Text className="text-center font-inter text-body-sm text-on-surface-variant/80">
+          <Text className="text-center font-inter text-body-sm text-on-surface-variant">
             {appConfig.firebase.enabled
               ? 'Secured with Firebase Authentication'
               : 'Add Firebase keys to .env to enable real authentication'}

@@ -1,8 +1,11 @@
-import { ComponentProps } from 'react';
+import { ComponentProps, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ThemeColors, useTheme } from '../../constants/theme';
 
 import { Icon } from '../Icon';
+import { GlassBackground } from '../Glass';
+import { shadows } from '../ui';
 
 type IconName = ComponentProps<typeof Icon>['name'];
 
@@ -19,17 +22,21 @@ type DocumentViewerToolbarProps = {
 };
 
 export function DocumentViewerToolbar({ actions }: DocumentViewerToolbarProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.wrap, { paddingBottom: insets.bottom + 8 }]}>
-      <View style={styles.bar}>
+    <View pointerEvents="box-none" style={[styles.wrap, { bottom: Math.max(insets.bottom, 12) + 4 }]}>
+      <View style={[styles.bar, shadows.lifted]}>
+        <GlassBackground radius={BAR_RADIUS} />
         {actions.map((action) =>
           action.primary ? (
             <Pressable
               key={action.label}
               onPress={action.onPress}
               disabled={action.disabled}
+              accessibilityLabel={action.label}
               style={styles.primaryBtn}
             >
               <Icon name={action.icon} size={26} className="text-on-primary" />
@@ -51,28 +58,25 @@ export function DocumentViewerToolbar({ actions }: DocumentViewerToolbarProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const BAR_RADIUS = 36;
+
+const makeStyles = (c: ThemeColors) =>
+  StyleSheet.create({
   wrap: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#ffffff',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e0e3e5',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: -2 },
-    elevation: 4,
+    left: 12,
+    right: 12,
   },
   bar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'space-around',
-    paddingTop: 12,
-    paddingHorizontal: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     minHeight: 72,
+    borderRadius: BAR_RADIUS,
+    overflow: 'hidden',
+    elevation: 4,
   },
   actionBtn: {
     flex: 1,
@@ -82,20 +86,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   actionLabel: {
-    color: '#3d4947',
-    fontFamily: 'Inter_400Regular',
+    color: c['on-surface-variant'],
+    fontFamily: 'InterTight_400Regular',
     fontSize: 11,
   },
   primaryBtn: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#00685f',
+    backgroundColor: c.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
     marginHorizontal: 4,
-    shadowColor: '#00685f',
+    shadowColor: '#000000',
     shadowOpacity: 0.35,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },

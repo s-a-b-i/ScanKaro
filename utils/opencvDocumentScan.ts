@@ -9,7 +9,8 @@ export type RgbaImage = {
   data: Uint8Array;
 };
 
-const PROCESS_HEIGHT = 600;
+// Page outlines are large shapes: 420px is plenty and keeps detection fast on slow phones.
+const PROCESS_HEIGHT = 420;
 const BORDER = 5;
 
 function clamp(value: number, min: number, max: number) {
@@ -24,14 +25,6 @@ export function decodeJpegBase64(base64: string): RgbaImage {
   const normalized = base64.replace(/^data:image\/\w+;base64,/, '');
   const raw = jpeg.decode(Buffer.from(normalized, 'base64'), { useTArray: true });
   return { width: raw.width, height: raw.height, data: raw.data as Uint8Array };
-}
-
-export function encodeJpeg(image: RgbaImage, quality = 88): Uint8Array {
-  const encoded = jpeg.encode(
-    { data: image.data, width: image.width, height: image.height },
-    quality,
-  );
-  return new Uint8Array(encoded.data);
 }
 
 function resizeToHeight(image: RgbaImage, height: number): RgbaImage {
@@ -144,25 +137,29 @@ function adaptiveThreshold(gray: Uint8Array, width: number, height: number, bloc
   return out;
 }
 
+/**
+ * Median filter for a binary (0/255) image, as produced by adaptiveThreshold.
+ * For two-valued input the median is a majority vote, so a summed-area table gives
+ * the same result as sorting each k×k window, in O(1) per pixel instead of O(k² log k).
+ * (Sorting made this step ~90% of detection time: over a minute on low-end phones.)
+ */
 function medianBlur(gray: Uint8Array, width: number, height: number, k: number) {
   const half = Math.floor(k / 2);
+  const integral = buildIntegral(gray, width, height);
+  const w = width + 1;
   const out = new Uint8Array(gray.length);
-  const window: number[] = [];
 
   for (let y = 0; y < height; y++) {
+    const y0 = Math.max(0, y - half);
+    const y1 = Math.min(height, y + half + 1);
     for (let x = 0; x < width; x++) {
-      window.length = 0;
-      for (let dy = -half; dy <= half; dy++) {
-        for (let dx = -half; dx <= half; dx++) {
-          const ny = y + dy;
-          const nx = x + dx;
-          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-            window.push(gray[ny * width + nx]);
-          }
-        }
-      }
-      window.sort((a, b) => a - b);
-      out[y * width + x] = window[Math.floor(window.length / 2)] ?? gray[y * width + x];
+      const x0 = Math.max(0, x - half);
+      const x1 = Math.min(width, x + half + 1);
+      const white =
+        (integral[y1 * w + x1] - integral[y0 * w + x1] - integral[y1 * w + x0] + integral[y0 * w + x0]) / 255;
+      const n = (x1 - x0) * (y1 - y0);
+      // Sorted ascending, the middle element (index floor(n/2)) is 255 iff whites >= n - floor(n/2).
+      out[y * width + x] = white >= n - Math.floor(n / 2) ? 255 : 0;
     }
   }
 
@@ -456,145 +453,6 @@ export function detectPageCornersFromImage(image: RgbaImage): DocumentCorners | 
   if (area < image.width * image.height * 0.08) return null;
 
   return corners;
-}
-
-function solveLinearSystem(a: number[][], b: number[]) {
-  const n = b.length;
-  const m = a.map((row, i) => [...row, b[i]]);
-
-  for (let col = 0; col < n; col++) {
-    let pivot = col;
-    for (let row = col + 1; row < n; row++) {
-      if (Math.abs(m[row][col]) > Math.abs(m[pivot][col])) pivot = row;
-    }
-    [m[col], m[pivot]] = [m[pivot], m[col]];
-
-    const div = m[col][col] || 1e-8;
-    for (let j = col; j <= n; j++) m[col][j] /= div;
-
-    for (let row = 0; row < n; row++) {
-      if (row === col) continue;
-      const factor = m[row][col];
-      for (let j = col; j <= n; j++) m[row][j] -= factor * m[col][j];
-    }
-  }
-
-  return m.map((row) => row[n]);
-}
-
-function getPerspectiveTransform(src: Point[], dst: Point[]) {
-  const a: number[][] = [];
-  const b: number[] = [];
-
-  for (let i = 0; i < 4; i++) {
-    const sx = src[i].x;
-    const sy = src[i].y;
-    const dx = dst[i].x;
-    const dy = dst[i].y;
-    a.push([sx, sy, 1, 0, 0, 0, -dx * sx, -dx * sy]);
-    b.push(dx);
-    a.push([0, 0, 0, sx, sy, 1, -dy * sx, -dy * sy]);
-    b.push(dy);
-  }
-
-  const h = solveLinearSystem(a, b);
-  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
-}
-
-function invert3x3(m: number[]) {
-  const [a, b, c, d, e, f, g, h, i] = m;
-  const A = e * i - f * h;
-  const B = -(d * i - f * g);
-  const C = d * h - e * g;
-  const D = -(b * i - c * h);
-  const E = a * i - c * g;
-  const F = -(a * h - b * g);
-  const G = b * f - c * e;
-  const H = -(a * f - c * d);
-  const I = a * e - b * d;
-  const det = a * A + b * B + c * C || 1e-8;
-
-  return [A / det, D / det, G / det, B / det, E / det, H / det, C / det, F / det, I / det];
-}
-
-function applyHomography(matrix: number[], x: number, y: number) {
-  const w = matrix[6] * x + matrix[7] * y + matrix[8];
-  return [
-    (matrix[0] * x + matrix[1] * y + matrix[2]) / w,
-    (matrix[3] * x + matrix[4] * y + matrix[5]) / w,
-  ];
-}
-
-function sampleBilinear(image: RgbaImage, x: number, y: number) {
-  const x0 = Math.floor(x);
-  const y0 = Math.floor(y);
-  const x1 = Math.min(image.width - 1, x0 + 1);
-  const y1 = Math.min(image.height - 1, y0 + 1);
-  const fx = x - x0;
-  const fy = y - y0;
-
-  if (x0 < 0 || y0 < 0 || x1 >= image.width || y1 >= image.height) {
-    return [255, 255, 255, 255];
-  }
-
-  const i00 = (y0 * image.width + x0) * 4;
-  const i10 = (y0 * image.width + x1) * 4;
-  const i01 = (y1 * image.width + x0) * 4;
-  const i11 = (y1 * image.width + x1) * 4;
-  const out = [0, 0, 0, 255];
-
-  for (let c = 0; c < 3; c++) {
-    const top = image.data[i00 + c] + (image.data[i10 + c] - image.data[i00 + c]) * fx;
-    const bottom = image.data[i01 + c] + (image.data[i11 + c] - image.data[i01 + c]) * fx;
-    out[c] = Math.round(top + (bottom - top) * fy);
-  }
-
-  return out;
-}
-
-export function warpDocumentPerspective(image: RgbaImage, corners: DocumentCorners): RgbaImage {
-  const src = [
-    corners.topLeft,
-    corners.bottomLeft,
-    corners.bottomRight,
-    corners.topRight,
-  ];
-
-  const width = Math.max(
-    Math.hypot(src[0].x - src[1].x, src[0].y - src[1].y),
-    Math.hypot(src[2].x - src[3].x, src[2].y - src[3].y),
-  );
-  const height = Math.max(
-    Math.hypot(src[0].x - src[3].x, src[0].y - src[3].y),
-    Math.hypot(src[1].x - src[2].x, src[1].y - src[2].y),
-  );
-
-  const outW = Math.max(1, Math.round(width));
-  const outH = Math.max(1, Math.round(height));
-  const dst = [
-    { x: 0, y: 0 },
-    { x: 0, y: outH },
-    { x: outW, y: outH },
-    { x: outW, y: 0 },
-  ];
-
-  const matrix = getPerspectiveTransform(dst, src);
-  const inv = invert3x3(matrix);
-  const data = new Uint8Array(outW * outH * 4);
-
-  for (let y = 0; y < outH; y++) {
-    for (let x = 0; x < outW; x++) {
-      const [sx, sy] = applyHomography(inv, x, y);
-      const rgba = sampleBilinear(image, sx, sy);
-      const o = (y * outW + x) * 4;
-      data[o] = rgba[0];
-      data[o + 1] = rgba[1];
-      data[o + 2] = rgba[2];
-      data[o + 3] = 255;
-    }
-  }
-
-  return { width: outW, height: outH, data };
 }
 
 export function detectPageCornersFromBase64(base64: string): DocumentCorners | null {

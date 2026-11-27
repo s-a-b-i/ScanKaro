@@ -91,7 +91,7 @@ export function FallbackCameraScan({ batchMode, onClose }: FallbackCameraScanPro
       <DocumentQuadOverlay width={width} height={height} corners={guideCorners} detected={false} />
 
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={onClose} style={styles.topBtn}>
+        <Pressable accessibilityLabel="Close" onPress={onClose} style={styles.topBtn}>
           <Icon name="close" size={24} className="text-white" />
         </Pressable>
       </View>
@@ -111,19 +111,19 @@ export function FallbackCameraScan({ batchMode, onClose }: FallbackCameraScanPro
           </ScrollView>
         ) : null}
         <View style={styles.shutterRow}>
-          <Pressable
+          <Pressable accessibilityLabel="Choose from photos"
             onPress={() => void pickScanImage().then((uri) => uri && addPage(uri))}
             style={styles.sideBtn}
           >
             <Icon name="photo-library" size={28} className="text-white" />
           </Pressable>
           <Pressable onPress={() => void capture()} disabled={capturing} style={styles.shutterOuter}>
-            {capturing ? <ActivityIndicator color="#00685f" /> : <View style={styles.shutterInner} />}
+            {capturing ? <ActivityIndicator color="#8e8e93" /> : <View style={styles.shutterInner} />}
           </Pressable>
-          <Pressable
+          <Pressable accessibilityLabel="Done"
             onPress={() => {
               if (pageCount === 0) return;
-              router.push(pageCount === 1 ? '/crop' : '/export');
+              router.push(pageCount === 1 ? '/crop' : '/enhance');
             }}
             style={styles.sideBtn}
           >
@@ -139,8 +139,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#000' },
   permissionText: { color: '#fff', marginBottom: 16, textAlign: 'center' },
-  permissionBtn: { backgroundColor: '#00685f', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
-  permissionBtnText: { color: '#fff', fontFamily: 'Inter_600SemiBold' },
+  permissionBtn: { backgroundColor: '#1d1d1f', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
+  permissionBtnText: { color: '#fff', fontFamily: 'InterTight_600SemiBold' },
   topBar: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, paddingHorizontal: 8 },
   topBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   hintWrap: { position: 'absolute', top: '46%', left: 0, right: 0, alignItems: 'center', zIndex: 8 },
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 16,
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'InterTight_500Medium',
     fontSize: 13,
   },
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.75)' },

@@ -4,7 +4,7 @@ import { DocumentCorners, FrameRect, frameRectToCorners } from '../../utils/docu
 
 const CORNER_SIZE = 28;
 const CORNER_THICKNESS = 4;
-const FRAME_COLOR = '#89f5e7';
+const FRAME_COLOR = '#ffffff';
 
 type DocumentFrameOverlayProps = {
   frame: FrameRect;
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
     textAlign: 'center',
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'InterTight_500Medium',
     fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
     letterSpacing: 0.2,

@@ -1,0 +1,65 @@
+diff --git a/node_modules/react-native-document-scanner-plugin/android/src/main/java/com/documentscanner/DocumentScannerModule.kt b/node_modules/react-native-document-scanner-plugin/android/src/main/java/com/documentscanner/DocumentScannerModule.kt
+--- a/node_modules/react-native-document-scanner-plugin/android/src/main/java/com/documentscanner/DocumentScannerModule.kt
++++ b/node_modules/react-native-document-scanner-plugin/android/src/main/java/com/documentscanner/DocumentScannerModule.kt
+@@ -59,6 +59,25 @@ class DocumentScannerModule(reactContext: ReactApplicationContext) :
+       )
+     }
+ 
++    // "base": detect, crop and straighten only (no ML Kit filters or cleanup), so the
++    // app can apply its own processing. "baseWithFilter" adds ML Kit filters; default "full".
++    if (options.hasKey("scannerMode")) {
++      documentScannerOptionsBuilder.setScannerMode(
++        when (options.getString("scannerMode")) {
++          "base" -> GmsDocumentScannerOptions.SCANNER_MODE_BASE
++          "baseWithFilter" -> GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER
++          else -> GmsDocumentScannerOptions.SCANNER_MODE_FULL
++        }
++      )
++    }
++
++    // Show ML Kit's own "import from gallery" button.
++    if (options.hasKey("galleryImportAllowed")) {
++      documentScannerOptionsBuilder.setGalleryImportAllowed(
++        options.getBoolean("galleryImportAllowed")
++      )
++    }
++
+     val croppedImageQuality: Int = if (options.hasKey("croppedImageQuality")) {
+       options.getInt("croppedImageQuality")
+     } else {
+diff --git a/node_modules/react-native-document-scanner-plugin/src/NativeDocumentScanner.ts b/node_modules/react-native-document-scanner-plugin/src/NativeDocumentScanner.ts
+--- a/node_modules/react-native-document-scanner-plugin/src/NativeDocumentScanner.ts
++++ b/node_modules/react-native-document-scanner-plugin/src/NativeDocumentScanner.ts
+@@ -17,6 +17,18 @@ export interface ScanDocumentOptions {
+    */
+   maxNumDocuments?: number;
+ 
++  /**
++   * Android only: let the user import photos from the gallery inside the scanner UI.
++   * @default: false
++   */
++  galleryImportAllowed?: boolean;
++
++  /**
++   * Android only: "base" = crop/straighten only, "baseWithFilter" adds filters,
++   * "full" (default) adds ML-powered cleanup.
++   */
++  scannerMode?: 'base' | 'baseWithFilter' | 'full';
++
+   /**
+    * The response comes back in this format on success. It can be the document
+    * scan image file paths or base64 images.
+diff --git a/node_modules/react-native-document-scanner-plugin/lib/typescript/src/NativeDocumentScanner.d.ts b/node_modules/react-native-document-scanner-plugin/lib/typescript/src/NativeDocumentScanner.d.ts
+--- a/node_modules/react-native-document-scanner-plugin/lib/typescript/src/NativeDocumentScanner.d.ts
++++ b/node_modules/react-native-document-scanner-plugin/lib/typescript/src/NativeDocumentScanner.d.ts
+@@ -13,6 +13,10 @@ export interface ScanDocumentOptions {
+      * @default: undefined
+      */
+     maxNumDocuments?: number;
++    /** Android only: let the user import photos from the gallery inside the scanner UI. */
++    galleryImportAllowed?: boolean;
++    /** Android only: 'base' | 'baseWithFilter' | 'full' (default). */
++    scannerMode?: 'base' | 'baseWithFilter' | 'full';
+     /**
+      * The response comes back in this format on success. It can be the document
+      * scan image file paths or base64 images.

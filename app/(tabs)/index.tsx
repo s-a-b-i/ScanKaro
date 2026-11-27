@@ -1,33 +1,83 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { ComponentProps, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CreateFolderSheet } from '../../components/CreateFolderSheet';
 import { DocumentListItem } from '../../components/DocumentListItem';
 import { Icon } from '../../components/Icon';
+import { LoadingOverlay } from '../../components/LoadingOverlay';
 import { SearchField } from '../../components/SearchField';
+import { EmptyState, useTabBarInset } from '../../components/ui';
 import { useApp } from '../../context/AppProvider';
+import { useDeleteWithUndo } from '../../hooks/useDeleteWithUndo';
+import { useScan } from '../../context/ScanProvider';
+import { pastel, PastelName } from '../../constants/pastel';
+import { useTheme } from '../../constants/theme';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { importFromGallery } from '../../utils/galleryImport';
+import { clearDraft, loadDraft } from '../../utils/scanDraft';
+import { clearTempFiles } from '../../utils/tempFiles';
+
+type Shortcut = {
+  key: string;
+  title: string;
+  icon: ComponentProps<typeof Icon>['name'];
+  color: PastelName;
+  onPress: () => void;
+};
+
+
+/** Offer an unsaved scan only once per app launch. */
+let draftOffered = false;
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const bottomInset = useTabBarInset();
   const {
+    profile,
     documents,
     folders,
     searchResults,
     runSearch,
     clearSearch,
-    createFolder,
     toggleFavorite,
-    removeDocument,
   } = useApp();
+  const { reset, addPage, restoreDraft } = useScan();
+  const { isDark } = useTheme();
 
   const [query, setQuery] = useState('');
-  const [showCreateFolder, setShowCreateFolder] = useState(false);
-  const [creatingFolder, setCreatingFolder] = useState(false);
+  const deleteWithUndo = useDeleteWithUndo();
+  const [importing, setImporting] = useState(false);
   const debouncedQuery = useDebouncedValue(query);
+
+  // Crash recovery: the app closed before the last scan was saved.
+  useEffect(() => {
+    if (draftOffered) return;
+    draftOffered = true;
+    const draft = loadDraft();
+    if (!draft) return;
+    const n = draft.pages.length;
+    Alert.alert('Continue your scan?', `You have ${n} unsaved page${n === 1 ? '' : 's'} from your last scan.`, [
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: () => {
+          clearDraft();
+          clearTempFiles();
+        },
+      },
+      {
+        text: 'Continue',
+        onPress: () => {
+          restoreDraft(draft);
+          // Imported photos keep their detected frame until cropped: go back to Crop for those.
+          const uncropped = draft.pages.some((uri) => draft.pageCorners?.[uri]);
+          router.push(uncropped ? '/crop' : '/enhance');
+        },
+      },
+    ]);
+  }, [restoreDraft, router]);
 
   useEffect(() => {
     if (debouncedQuery.trim().length >= 2) {
@@ -38,163 +88,222 @@ export default function HomeScreen() {
   }, [debouncedQuery, runSearch, clearSearch]);
 
   const isSearching = debouncedQuery.trim().length >= 2;
-  const recentScans = isSearching ? (searchResults ?? []) : documents.slice(0, 3);
-  const filteredFolders = isSearching
-    ? folders.filter((f) => f.title.toLowerCase().includes(debouncedQuery.trim().toLowerCase()))
-    : folders;
+  const recentScans = documents.slice(0, 6);
+  const results = searchResults ?? [];
+  const firstName = profile?.name?.split(' ')[0];
 
-  const handleCreateFolder = async (name: string) => {
-    setCreatingFolder(true);
+  const importPhoto = async () => {
+    if (importing) return;
     try {
-      await createFolder(name);
-      setShowCreateFolder(false);
+      // Opens the gallery directly, then finds the page edges so the crop frame starts on them.
+      const page = await importFromGallery(() => setImporting(true));
+      if (!page) return;
+      reset();
+      addPage(page.uri, page.corners);
+      router.push('/crop');
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Could not create folder');
+      Alert.alert('Import failed', error instanceof Error ? error.message : 'Could not import this photo.');
     } finally {
-      setCreatingFolder(false);
+      setImporting(false);
     }
   };
 
+  const shortcuts: Shortcut[] = [
+    { key: 'id', title: 'ID card', icon: 'badge', color: 'green', onPress: () => router.push({ pathname: '/scan', params: { mode: 'id' } }) },
+    { key: 'qr', title: 'QR scan', icon: 'qr-code-scanner', color: 'blue', onPress: () => router.push('/qr') },
+    { key: 'translate', title: 'Translate', icon: 'translate', color: 'yellow', onPress: () => router.push('/translate') },
+    { key: 'locker', title: 'Locker', icon: 'lock', color: 'pink', onPress: () => router.push('/locker') },
+  ];
+
+  const hour = new Date().getHours();
+  const greeting = hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  const showHelp = () =>
+    Alert.alert(
+      'How to scan',
+      [
+        '1. Tap Scan to open the camera, or Import to pick a photo.',
+        '2. Adjust the corners if needed, then tap Next.',
+        '3. Pick a filter or adjust the lighting, then save.',
+      ].join('\n'),
+    );
+
+  const renderDoc = (doc: (typeof documents)[number]) => (
+    <DocumentListItem
+      key={doc.id}
+      document={doc}
+      onPress={() => router.push(`/document/${doc.id}`)}
+      onToggleFavorite={() => toggleFavorite(doc.id)}
+      onDelete={() => void deleteWithUndo([doc.id])}
+    />
+  );
+
   return (
-    <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
-      <View className="border-b border-outline-variant bg-surface">
-        <View className="h-14 flex-row items-center justify-between px-margin-mobile">
-          <View className="flex-row items-center gap-3">
-            <Icon name="menu" size={24} className="text-on-surface-variant" />
-            <Text className="font-inter text-display-lg text-primary">ScanKaro</Text>
+    <View className="flex-1 bg-background">
+      <LoadingOverlay visible={importing} message="Finding page edges…" />
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: bottomInset, paddingHorizontal: 20 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header: greeting, with help and account at the trailing edge. */}
+        <View className="flex-row items-center">
+          <View className="flex-1">
+            <Text className="font-inter text-[15px] text-on-surface-variant">{greeting}</Text>
+            <Text
+              className="font-inter-semibold text-[28px] leading-[34px] tracking-[-0.6px] text-on-surface"
+              numberOfLines={1}
+            >
+              {firstName ?? 'ScanKaro'}
+            </Text>
           </View>
-          <Pressable onPress={() => router.push('/(tabs)/settings')} className="rounded-full p-2">
-            <Icon name="settings" size={24} className="text-on-surface-variant" />
+          <Pressable
+            onPress={showHelp}
+            accessibilityLabel="How to scan"
+            className="mr-2 h-11 w-11 items-center justify-center rounded-full active:bg-surface-container"
+          >
+            <Icon name="help-outline" size={24} className="text-on-surface-variant" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/(tabs)/settings')}
+            accessibilityLabel="Account and settings"
+            className="active:opacity-70"
+          >
+            {profile?.avatar ? (
+              <Image source={{ uri: profile.avatar }} className="h-11 w-11 rounded-full" />
+            ) : (
+              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-container">
+                <Text className="font-inter-bold text-[17px] text-on-surface">
+                  {(firstName ?? 'S').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
-        <View className="px-margin-mobile pb-4 pt-2">
-          <SearchField
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search folders and docs..."
-          />
+        {/* Search: primary position, scoped to documents. */}
+        <View className="mt-5">
+          <SearchField value={query} onChangeText={setQuery} placeholder="Search documents and text" />
         </View>
-      </View>
 
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="gap-stack-lg pb-28 pt-stack-md"
-        showsVerticalScrollIndicator={false}
-      >
-        <View>
-          <View className="mb-stack-sm flex-row items-center justify-between px-margin-mobile">
-            <Text className="font-inter text-title-md text-on-surface">
-              {isSearching ? `Results (${recentScans.length})` : 'Recent Scans'}
+        {isSearching ? (
+          <View className="mt-6">
+            <Text className="mb-3 font-inter-semibold text-[17px] text-on-surface">
+              {results.length} result{results.length === 1 ? '' : 's'}
             </Text>
-            {!isSearching && documents.length > 3 ? (
-              <Pressable onPress={() => router.push('/(tabs)/folders')}>
-                <Text className="font-inter text-label-md text-primary">See All</Text>
-              </Pressable>
-            ) : null}
+            {results.length === 0 ? (
+              <EmptyState icon="search-off" title="No matches" message="Try a different word or document name." />
+            ) : (
+              results.map(renderDoc)
+            )}
           </View>
+        ) : (
+          <>
+            {/* One primary action, one secondary. */}
+            <View className="mt-5 flex-row gap-3">
+              <Pressable
+                onPress={() => router.push('/scan')}
+                accessibilityRole="button"
+                className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-on-surface active:opacity-85"
+              >
+                <Icon name="document-scanner" size={22} className="text-surface" />
+                <Text className="font-inter-semibold text-[16px] text-surface">Scan</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void importPhoto()}
+                accessibilityRole="button"
+                className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-full border border-outline-variant active:bg-surface-container"
+              >
+                <Icon name="add-photo-alternate" size={22} className="text-on-surface" />
+                <Text className="font-inter-semibold text-[16px] text-on-surface">Import</Text>
+              </Pressable>
+            </View>
 
-          {recentScans.length === 0 ? (
-            <View className="px-margin-mobile py-8">
-              <Text className="text-center font-inter text-body-lg text-on-surface-variant">
-                {isSearching ? 'No documents match your search.' : 'No scans yet. Tap + to scan your first document.'}
+            {/* Shortcuts */}
+            <View className="mb-1 mt-7 flex-row items-center justify-between">
+              <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-on-surface">
+                Shortcuts
               </Text>
-            </View>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-gutter px-margin-mobile">
-              {recentScans.map((scan) => (
-                <Pressable
-                  key={scan.id}
-                  onPress={() => router.push(`/document/${scan.id}`)}
-                  className="w-40 rounded-xl border border-outline-variant bg-surface-container-lowest p-2 shadow-sm active:opacity-90"
-                >
-                  <View className="relative mb-2 h-44 w-full overflow-hidden rounded-lg border border-outline-variant/20 bg-surface-container">
-                    {scan.image ? (
-                      <Image source={{ uri: scan.image }} className="h-full w-full" resizeMode="cover" />
-                    ) : (
-                      <View className="h-full w-full items-center justify-center">
-                        <Icon name="description" size={32} className="text-on-surface-variant" />
-                      </View>
-                    )}
-                  </View>
-                  <Text className="font-inter text-label-md text-on-surface" numberOfLines={1}>
-                    {scan.title}
-                  </Text>
-                  <Text className="font-inter text-[11px] text-on-surface-variant/70">{scan.meta}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
-
-          {isSearching && recentScans.length > 0 ? (
-            <View className="mt-4 px-margin-mobile">
-              {recentScans.map((doc) => (
-                <DocumentListItem
-                  key={doc.id}
-                  document={doc}
-                  onPress={() => router.push(`/document/${doc.id}`)}
-                  onToggleFavorite={() => toggleFavorite(doc.id)}
-                  onDelete={() => removeDocument(doc.id)}
-                />
-              ))}
-            </View>
-          ) : null}
-        </View>
-
-        {!isSearching ? (
-          <View className="px-margin-mobile">
-            <View className="mb-stack-sm flex-row items-center justify-between">
-              <Text className="font-inter text-title-md text-on-surface">Folders</Text>
-              <Pressable onPress={() => setShowCreateFolder(true)}>
-                <Text className="font-inter text-label-md text-primary">New Folder</Text>
+              <Pressable onPress={() => router.push('/(tabs)/tools')} hitSlop={8} className="h-11 justify-center">
+                <Text className="font-inter-semibold text-[15px] text-on-surface-variant">All tools</Text>
               </Pressable>
             </View>
-
-            <View className="flex-row flex-wrap gap-gutter">
-              {filteredFolders.map((folder) => (
+            <View className="-mx-1 flex-row">
+              {shortcuts.map((sc) => (
                 <Pressable
-                  key={folder.id}
-                  onPress={() => router.push(`/folder/${folder.id}`)}
-                  className="w-[47%] gap-3 rounded-2xl border border-outline-variant/40 bg-surface-container-low p-4 active:opacity-90"
+                  key={sc.key}
+                  onPress={sc.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={sc.title}
+                  className="w-1/4 items-center px-1 py-2 active:opacity-60"
                 >
-                  <View className={`h-10 w-10 items-center justify-center rounded-xl ${folder.color}`}>
-                    <Icon name={folder.icon} size={22} className={folder.iconColor} filled />
+                  <View
+                    className="h-[52px] w-[52px] items-center justify-center rounded-full"
+                    style={{ backgroundColor: pastel(sc.color, isDark) }}
+                  >
+                    <Icon name={sc.icon} size={24} className="text-on-surface" />
                   </View>
-                  <View>
-                    <Text className="font-inter text-title-md text-on-surface">{folder.title}</Text>
-                    <Text className="font-inter text-body-sm text-on-surface-variant">{folder.count} items</Text>
-                  </View>
+                  <Text className="mt-2 font-inter-medium text-[12.5px] text-on-surface" numberOfLines={1}>
+                    {sc.title}
+                  </Text>
                 </Pressable>
               ))}
             </View>
-          </View>
-        ) : null}
 
-        <View className="px-margin-mobile">
-          <View className="relative flex-row items-center gap-4 overflow-hidden rounded-2xl bg-inverse-surface p-4">
-            <View className="z-10 flex-1">
-              <Text className="font-inter text-title-md text-inverse-on-surface">Storage Cloud</Text>
-              <View className="mb-1 mt-2 h-1.5 w-full rounded-full bg-white/20">
-                <View className="h-full w-3/4 rounded-full bg-primary-fixed" />
+            {/* Recent documents: a list, since titles and dates are text. */}
+            <View className="mb-2 mt-6 flex-row items-center justify-between">
+              <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-on-surface">
+                Recent
+              </Text>
+              {documents.length > 0 ? (
+                <Pressable onPress={() => router.push('/(tabs)/folders')} hitSlop={8} className="h-11 justify-center">
+                  <Text className="font-inter-semibold text-[15px] text-on-surface-variant">See all</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {recentScans.length === 0 ? (
+              <View className="items-center rounded-[24px] bg-surface-container-lowest px-6 py-8">
+                <View className="h-14 w-14 items-center justify-center rounded-full bg-surface-container">
+                  <Icon name="document-scanner" size={26} className="text-on-surface" />
+                </View>
+                <Text className="mt-3 font-inter-semibold text-[17px] text-on-surface">No documents yet</Text>
+                <Text className="mt-1 text-center font-inter text-[14px] leading-[20px] text-on-surface-variant">
+                  Scan a page or import a photo to get started.
+                </Text>
               </View>
-              <Text className="font-inter text-body-sm text-white/70">1.2GB of 2GB used</Text>
-            </View>
-            <Pressable onPress={() => router.push('/paywall')} className="z-10 rounded-full bg-primary-fixed px-4 py-2">
-              <Text className="font-inter text-label-md text-on-primary-fixed">Upgrade</Text>
-            </Pressable>
-            <View className="absolute -bottom-5 -right-2 opacity-10">
-              <Icon name="cloud-upload" size={96} className="text-inverse-on-surface" />
-            </View>
-          </View>
-        </View>
-      </ScrollView>
+            ) : (
+              recentScans.map(renderDoc)
+            )}
 
-      <CreateFolderSheet
-        visible={showCreateFolder}
-        loading={creatingFolder}
-        onClose={() => setShowCreateFolder(false)}
-        onCreate={handleCreateFolder}
-      />
+            {folders.length > 0 ? (
+              <>
+                <Text accessibilityRole="header" className="mb-3 mt-6 font-inter-semibold text-[17px] text-on-surface">
+                  Folders
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  className="-mx-5"
+                  contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+                >
+                  {folders.map((folder) => (
+                    <Pressable
+                      key={folder.id}
+                      onPress={() => router.push(`/folder/${folder.id}`)}
+                      className="h-11 flex-row items-center gap-2 rounded-full bg-surface-container px-4 active:opacity-70"
+                    >
+                      <Icon name="folder" size={18} className="text-on-surface-variant" />
+                      <Text className="font-inter-semibold text-[14px] text-on-surface">{folder.title}</Text>
+                      <Text className="font-inter text-[13px] text-on-surface-variant">{folder.count}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }

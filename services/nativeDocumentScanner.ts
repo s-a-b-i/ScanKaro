@@ -7,6 +7,14 @@ import DocumentScanner, {
 export type NativeScanOptions = {
   maxNumDocuments?: number;
   croppedImageQuality?: number;
+  /** Android only: show ML Kit's gallery button (needs patches/react-native-document-scanner-plugin). */
+  galleryImportAllowed?: boolean;
+  /**
+   * Android only. "base" (our default): ML Kit only finds, crops and straightens the page;
+   * all cleanup happens in our Enhance step, so camera scans and gallery imports get the
+   * exact same processing. "full" would add ML Kit's own cleanup on top.
+   */
+  scannerMode?: 'base' | 'baseWithFilter' | 'full';
 };
 
 export function isNativeDocumentScannerAvailable(): boolean {
@@ -24,6 +32,8 @@ export async function scanDocumentsNative(
   const result = await DocumentScanner.scanDocument({
     croppedImageQuality: options.croppedImageQuality ?? 92,
     maxNumDocuments: options.maxNumDocuments,
+    galleryImportAllowed: options.galleryImportAllowed ?? Platform.OS === 'android',
+    scannerMode: options.scannerMode ?? 'base',
   });
 
   if (result.status === ScanDocumentResponseStatus.Cancel || !result.scannedImages?.length) {

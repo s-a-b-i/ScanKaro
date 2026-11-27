@@ -4,8 +4,8 @@ import Svg, { Defs, Line, Mask, Polygon, Rect } from 'react-native-svg';
 import { DocumentCorners } from '../../utils/documentFrame';
 import { cornersToPoints } from '../../utils/documentDetection';
 
-const GUIDE_COLOR = '#89f5e7';
-const LOCKED_COLOR = '#00685f';
+const GUIDE_COLOR = '#ffffff';
+const LOCKED_COLOR = '#ffffff';
 const CORNER_LEN = 28;
 
 type DocumentQuadOverlayProps = {
