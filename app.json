@@ -30,6 +30,19 @@
         {
           "cameraPermission": "ScanKaro needs camera access to scan documents with live edge detection."
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 288,
+          "resizeMode": "contain",
+          "backgroundColor": "#F2F3F7",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#0E0F12"
+          }
+        }
       ]
     ],
     "icon": "./assets/icon.png",
@@ -43,7 +56,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#131418",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

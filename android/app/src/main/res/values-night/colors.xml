@@ -1,1 +1,5 @@
-<resources/>
+<resources>
+  <!-- Dark mode splash: matches the app's dark background (constants/palette.js). -->
+  <color name="splashscreen_background">#0E0F12</color>
+  <color name="colorPrimaryDark">#0E0F12</color>
+</resources>
