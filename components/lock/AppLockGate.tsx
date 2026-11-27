@@ -1,9 +1,7 @@
-import { useRouter } from 'expo-router';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useApp } from '../../context/AppProvider';
 import {
   biometricsAvailable,
   disableLock,
@@ -11,6 +9,7 @@ import {
   isLockEnabled,
   PIN_LENGTH,
   unlockWithBiometrics,
+  verifyPhoneOwner,
   verifyPin,
 } from '../../services/appLock';
 import { PinPad } from './PinPad';
@@ -30,8 +29,6 @@ export const useAppLock = () => useContext(LockContext);
 /** Covers the whole app with a PIN screen while locked. */
 export function AppLockGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { profile, signOut } = useApp();
 
   const [enabled, setEnabled] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -104,21 +101,32 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     );
   };
 
+  // Reset only after the phone's own screen lock confirms the owner. (Logging out used to
+  // turn the lock off unchecked; with no sign-in needed that would open every document.)
   const forgotPin = () => {
     Alert.alert(
       'Forgot your PIN?',
-      'Log out and sign in again with your password to turn the lock off. Your documents stay on this device.',
+      "Confirm it's you with your phone's screen lock to turn the ScanKaro lock off. Your documents stay on this phone.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Log out',
-          style: 'destructive',
+          text: 'Use phone lock',
           onPress: async () => {
-            await disableLock();
-            await signOut();
-            setEnabled(false);
-            setLocked(false);
-            router.replace('/login');
+            const result = await verifyPhoneOwner();
+            if (result === 'ok') {
+              await disableLock();
+              setEnabled(false);
+              setLocked(false);
+              setPinValue('');
+              setMessage(null);
+              Alert.alert('Lock turned off', 'Set a new PIN any time in Settings > Security.');
+            } else if (result === 'no-screen-lock') {
+              Alert.alert(
+                "Can't confirm it's you",
+                'This phone has no screen lock. Add one in your phone settings (Security > Screen lock), then try again.',
+              );
+            }
+            // 'failed' = the user cancelled the phone prompt: stay on the PIN screen.
           },
         },
       ],
@@ -146,11 +154,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
                 onChange={(v) => void onPinChange(v)}
                 onBiometric={biometric ? () => void tryBiometric() : undefined}
               />
-              {profile ? (
-                <Pressable onPress={forgotPin} hitSlop={8} className="mt-6 px-4 py-2">
-                  <Text className="font-inter-semibold text-[14px] text-primary">Forgot PIN?</Text>
-                </Pressable>
-              ) : null}
+              <Pressable onPress={forgotPin} hitSlop={8} className="mt-6 px-4 py-2">
+                <Text className="font-inter-semibold text-[14px] text-primary">Forgot PIN?</Text>
+              </Pressable>
             </>
           ) : null}
         </View>

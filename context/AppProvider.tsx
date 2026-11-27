@@ -70,23 +70,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
 
+  // The library lives on the phone, so it is there with or without an account. Only the
+  // cloud backend (cloud mode) needs a signed-in user to list documents.
+  const canLoadLibrary = !appConfig.cloud.enabled || !!profile;
+
   const refreshDocuments = useCallback(async () => {
-    if (!profile) {
+    if (!canLoadLibrary) {
       setDocuments([]);
       return;
     }
     const list = await documentService.list();
     setDocuments(list);
-  }, [profile]);
+  }, [canLoadLibrary]);
 
   const refreshFolders = useCallback(async () => {
-    if (!profile) {
+    if (!canLoadLibrary) {
       setFolders([]);
       return;
     }
     const list = await folderService.list();
     setFolders(list);
-  }, [profile]);
+  }, [canLoadLibrary]);
 
   const refreshProfile = useCallback(async () => {
     const firebaseProfile = await authService.getProfile();
@@ -142,10 +146,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (!user) {
         setProfile(null);
-        setDocuments([]);
-        setFolders([]);
         setSearchResults(null);
-        setLoading(false);
+        if (appConfig.cloud.enabled) {
+          setDocuments([]);
+          setFolders([]);
+        } else {
+          // No account needed: show the documents saved on this phone.
+          try {
+            const [docs, folderList] = await Promise.all([documentService.list(), folderService.list()]);
+            if (!cancelled) {
+              setDocuments(docs);
+              setFolders(folderList);
+            }
+          } catch (error) {
+            console.warn('[AppProvider] library load failed:', error);
+          }
+        }
+        if (!cancelled) setLoading(false);
         return;
       }
 
@@ -212,9 +229,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await authService.signOut();
     setProfile(null);
-    setDocuments([]);
-    setFolders([]);
     setSearchResults(null);
+    // On-device documents stay: signing out only ends the account session.
+    if (appConfig.cloud.enabled) {
+      setDocuments([]);
+      setFolders([]);
+    }
   }, []);
 
   const deleteAccount = useCallback(async () => {
