@@ -87,3 +87,28 @@ export async function makeIdSheet(photoUri: string, size: IdPhotoSize): Promise<
   surface.flush();
   return { image: saveJpeg(surface.makeImageSnapshot(), 95, 'idsheet'), copies: rows * cols };
 }
+
+/** Crops a region (in image pixels) out of a photo, e.g. the passport frame from the camera. */
+export async function cropRegion(
+  uri: string,
+  rect: { x: number; y: number; width: number; height: number },
+): Promise<SavedImage> {
+  const src = await loadImage(uri);
+  const x = Math.max(0, Math.min(rect.x, src.width() - 1));
+  const y = Math.max(0, Math.min(rect.y, src.height() - 1));
+  const w = Math.max(1, Math.min(rect.width, src.width() - x));
+  const h = Math.max(1, Math.min(rect.height, src.height() - y));
+  const surface = makeSurface(Math.round(w), Math.round(h));
+  surface
+    .getCanvas()
+    .drawImageRectOptions(
+      src,
+      Skia.XYWHRect(x, y, w, h),
+      Skia.XYWHRect(0, 0, Math.round(w), Math.round(h)),
+      FilterMode.Linear,
+      MipmapMode.Linear,
+      null,
+    );
+  surface.flush();
+  return saveJpeg(surface.makeImageSnapshot(), 95, 'passport');
+}

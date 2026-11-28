@@ -22,34 +22,22 @@ export type GlassVariant =
   | 'media';
 
 const TINT: Record<GlassVariant, { light: string; dark: string }> = {
-  regular: { light: 'rgba(248,248,250,0.55)', dark: 'rgba(30,32,38,0.62)' },
+  regular: { light: 'rgba(250,250,252,0.78)', dark: 'rgba(30,32,38,0.8)' },
   sheet: { light: 'rgba(250,250,252,0.86)', dark: 'rgba(28,30,36,0.88)' },
   media: { light: 'rgba(0,0,0,0.35)', dark: 'rgba(0,0,0,0.35)' },
 };
 
 /**
- * Light hitting the glass: a bright rim along the top edge, a soft diagonal streak, and a
- * faint shade towards the bottom. Purely decorative.
+ * A quiet frosted finish: a faint lift of light at the top and a hairline top rim.
+ * Deliberately restrained; no streaks or glints.
  */
 export function GlassReflections({ isDark, radius, subtle }: { isDark: boolean; radius: number; subtle?: boolean }) {
-  const strength = (isDark ? 0.35 : 1) * (subtle ? 0.55 : 1);
+  const strength = (isDark ? 0.35 : 1) * (subtle ? 0.6 : 1);
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]}>
       <LinearGradient
-        colors={[`rgba(255,255,255,${0.75 * strength})`, 'rgba(255,255,255,0)']}
-        locations={[0, 0.55]}
-        style={StyleSheet.absoluteFill}
-      />
-      <LinearGradient
-        colors={['rgba(255,255,255,0)', `rgba(255,255,255,${0.32 * strength})`, 'rgba(255,255,255,0)']}
-        locations={[0.18, 0.32, 0.46]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.05)']}
-        locations={[0.55, 1]}
+        colors={[`rgba(255,255,255,${0.35 * strength})`, 'rgba(255,255,255,0)']}
+        locations={[0, 0.45]}
         style={StyleSheet.absoluteFill}
       />
       <View
@@ -58,8 +46,8 @@ export function GlassReflections({ isDark, radius, subtle }: { isDark: boolean; 
           top: 0,
           left: Math.max(radius * 0.6, 12),
           right: Math.max(radius * 0.6, 12),
-          height: 1,
-          backgroundColor: `rgba(255,255,255,${isDark ? 0.35 : 0.95})`,
+          height: StyleSheet.hairlineWidth * 2,
+          backgroundColor: `rgba(255,255,255,${isDark ? 0.18 : 0.7})`,
         }}
       />
     </View>
@@ -88,7 +76,7 @@ export function GlassBackground({ radius, variant = 'regular', topOnly, noBlur }
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, corners, { overflow: 'hidden' }]}>
       {noBlur ? null : (
         <BlurView
-          intensity={Platform.OS === 'ios' ? 50 : 32}
+          intensity={Platform.OS === 'ios' ? 55 : 45}
           tint={reflectDark ? 'dark' : 'light'}
           experimentalBlurMethod="dimezisBlurView"
           style={StyleSheet.absoluteFill}
@@ -138,14 +126,15 @@ type GlassButtonProps = PressableProps & {
 
 /** Round glass icon button (44 pt minimum hit area). */
 export function GlassButton({ children, size = 48, variant, className, style, ...props }: GlassButtonProps) {
+  // Static style only: NativeWind's className wrapper drops function styles on Pressable.
   return (
     <Pressable
       accessibilityRole="button"
       {...props}
       className={`items-center justify-center active:opacity-70 ${className ?? ''}`}
-      style={(state) => [
+      style={[
         { width: size, height: size, borderRadius: size / 2, overflow: 'hidden' },
-        typeof style === 'function' ? style(state) : style,
+        typeof style === 'function' ? undefined : style,
       ]}
     >
       <GlassBackground radius={size / 2} variant={variant} />

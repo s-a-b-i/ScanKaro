@@ -1,13 +1,13 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Tabs, useRouter } from 'expo-router';
-import { ComponentProps } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Tabs } from 'expo-router';
+import { ComponentProps, useEffect, useRef, useState } from 'react';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GlassReflections } from '../../components/Glass';
 import { Icon } from '../../components/Icon';
-import { TAB_BAR_GAP, TAB_BAR_HEIGHT, shadows } from '../../components/ui';
+import { TAB_BAR_GAP, TAB_BAR_HEIGHT } from '../../components/ui';
 import { useTheme } from '../../constants/theme';
 import { useStartScan } from '../../hooks/useStartScan';
 
@@ -20,104 +20,136 @@ const TABS: { name: string; label: string; icon: IconName; activeIcon: IconName 
   { name: 'settings', label: 'Settings', icon: 'settings', activeIcon: 'settings' },
 ];
 
-const SCAN_SIZE = TAB_BAR_HEIGHT;
+const HEIGHT = TAB_BAR_HEIGHT;
+const PAD = 5;
 
-/** Floating frosted-glass pill with a separate round scan button on the right. */
+/**
+ * Liquid-glass tab bar: one floating pill (blur, translucent fill, specular rim) with a
+ * brighter glass "lens" that slides to the selected tab, plus a round scan button. A fade
+ * behind the bar lets content dissolve into it (scroll edge effect).
+ */
 function GlassTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const startScan = useStartScan();
+  const { isDark, colors } = useTheme();
   const bottom = Math.max(insets.bottom, TAB_BAR_GAP);
-  const { isDark } = useTheme();
-  const radius = TAB_BAR_HEIGHT / 2;
+  const [barWidth, setBarWidth] = useState(0);
+  const tabWidth = barWidth > 0 ? (barWidth - PAD * 2) / TABS.length : 0;
+
+  const activeTab = TABS.findIndex((t) => state.routes[state.index]?.name === t.name);
+  const lens = useRef(new Animated.Value(Math.max(activeTab, 0))).current;
+  useEffect(() => {
+    if (activeTab < 0) return;
+    Animated.spring(lens, { toValue: activeTab, friction: 9, tension: 90, useNativeDriver: true }).start();
+  }, [activeTab, lens]);
+
+  const rim = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.9)';
 
   return (
-    <View pointerEvents="box-none" style={[styles.wrap, { bottom }]}>
-      {/* Lower elevation on Android: its shadow shows through translucent views. */}
-      <View
-        style={[
-          styles.pill,
-          shadows.lifted,
-          { elevation: 4, borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)' },
-        ]}
-      >
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 50 : 32}
-          tint={isDark ? 'dark' : 'light'}
-          experimentalBlurMethod="dimezisBlurView"
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Tint keeps labels readable, and is the fallback where blur is unavailable. */}
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      {/* Scroll edge effect: content fades out behind the bar. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={[`${colors.background}00`, `${colors.background}D9`]}
+        style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: HEIGHT + bottom + 40 }}
+      />
+
+      <View pointerEvents="box-none" style={[styles.wrap, { bottom }]}>
+        {/* The pill */}
         <View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: isDark ? 'rgba(30,32,38,0.62)' : 'rgba(248,248,250,0.55)' },
-          ]}
-        />
-        <GlassReflections isDark={isDark} radius={radius} />
+          onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+          style={[styles.pill, { borderColor: rim, shadowColor: isDark ? '#000' : '#1b2440' }]}
+        >
+          <View style={[StyleSheet.absoluteFill, { borderRadius: HEIGHT / 2, overflow: 'hidden' }]}>
+            <BlurView
+              intensity={Platform.OS === 'ios' ? 60 : 50}
+              tint={isDark ? 'dark' : 'light'}
+              experimentalBlurMethod="dimezisBlurView"
+              style={StyleSheet.absoluteFill}
+            />
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: isDark ? 'rgba(28,30,36,0.55)' : 'rgba(250,250,252,0.42)' },
+              ]}
+            />
+            <GlassReflections isDark={isDark} radius={HEIGHT / 2} />
+          </View>
 
-        <View className="flex-1 flex-row items-center justify-between px-1.5">
-          {TABS.map((tab) => {
-            const routeIndex = state.routes.findIndex((r: { name: string }) => r.name === tab.name);
-            const focused = state.index === routeIndex;
-            return (
-              <Pressable
-                key={tab.name}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: focused }}
-                accessibilityLabel={tab.label}
-                onPress={() => {
-                  const event = navigation.emit({
-                    type: 'tabPress',
-                    target: state.routes[routeIndex]?.key,
-                    canPreventDefault: true,
-                  });
-                  if (!focused && !event.defaultPrevented) navigation.navigate(tab.name);
-                }}
-                className="h-[52px] flex-1 items-center justify-center rounded-full"
-                style={
-                  focused
-                    ? {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)',
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.06)',
-                      }
-                    : undefined
-                }
-              >
-                <Icon
-                  name={focused ? tab.activeIcon : tab.icon}
-                  size={23}
-                  className={focused ? 'text-on-surface' : 'text-on-surface-variant'}
-                />
-                <Text
-                  className={`mt-0.5 text-[11px] ${
-                    focused ? 'font-inter-semibold text-on-surface' : 'font-inter-medium text-on-surface-variant'
-                  }`}
+          {/* Sliding lens under the selected tab */}
+          {tabWidth > 0 && activeTab >= 0 ? (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: PAD,
+                bottom: PAD,
+                left: PAD,
+                width: tabWidth,
+                borderRadius: (HEIGHT - PAD * 2) / 2,
+                overflow: 'hidden',
+                backgroundColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.78)',
+                borderWidth: StyleSheet.hairlineWidth * 2,
+                borderColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,1)',
+                transform: [{ translateX: Animated.multiply(lens, tabWidth) }],
+              }}
+            >
+              <GlassReflections isDark={isDark} radius={(HEIGHT - PAD * 2) / 2} />
+            </Animated.View>
+          ) : null}
+
+          <View style={{ flex: 1, flexDirection: 'row', paddingHorizontal: PAD }}>
+            {TABS.map((tab, i) => {
+              const routeIndex = state.routes.findIndex((r: { name: string }) => r.name === tab.name);
+              const focused = i === activeTab;
+              return (
+                <Pressable
+                  key={tab.name}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: focused }}
+                  accessibilityLabel={tab.label}
+                  onPress={() => {
+                    const event = navigation.emit({
+                      type: 'tabPress',
+                      target: state.routes[routeIndex]?.key,
+                      canPreventDefault: true,
+                    });
+                    if (!focused && !event.defaultPrevented) navigation.navigate(tab.name);
+                  }}
+                  style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
                 >
-                  {tab.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+                  <Icon
+                    name={focused ? tab.activeIcon : tab.icon}
+                    size={23}
+                    className={focused ? 'text-on-surface' : 'text-on-surface-variant'}
+                  />
+                  <Text
+                    className={`mt-0.5 text-[11px] ${
+                      focused ? 'font-inter-semibold text-on-surface' : 'font-inter-medium text-on-surface-variant'
+                    }`}
+                  >
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
-      </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Scan document"
-        onPress={() => startScan()}
-        className="items-center justify-center overflow-hidden rounded-full bg-on-surface active:opacity-85"
-        style={[{ width: SCAN_SIZE, height: SCAN_SIZE }, shadows.lifted]}
-      >
-        {/* Glossy highlight on the solid button. */}
-        <LinearGradient
-          colors={[isDark ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.28)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.6]}
-          style={StyleSheet.absoluteFill}
-        />
-        <Icon name="document-scanner" size={27} className="text-surface" />
-      </Pressable>
+        {/* Scan: the primary action, so its glass carries colour (ink). */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Scan document"
+          onPress={() => startScan()}
+          className="active:opacity-85"
+          style={[styles.scan, { borderColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.35)' }]}
+        >
+          <View style={[StyleSheet.absoluteFill, { borderRadius: HEIGHT / 2, overflow: 'hidden', backgroundColor: '#17181D' }]}>
+            <GlassReflections isDark radius={HEIGHT / 2} />
+          </View>
+          <Icon name="document-scanner" size={26} className="text-[#ffffff]" />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -144,9 +176,26 @@ const styles = StyleSheet.create({
   },
   pill: {
     flex: 1,
-    height: TAB_BAR_HEIGHT,
-    borderRadius: TAB_BAR_HEIGHT / 2,
-    overflow: 'hidden',
+    height: HEIGHT,
+    borderRadius: HEIGHT / 2,
     borderWidth: 1,
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    // Low elevation on Android: a strong shadow shows through translucent views.
+    elevation: 3,
+  },
+  scan: {
+    width: HEIGHT,
+    height: HEIGHT,
+    borderRadius: HEIGHT / 2,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
 });
