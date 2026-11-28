@@ -1,8 +1,11 @@
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { ComponentProps, useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BrandMark } from '../../components/BrandMark';
 import { DocumentListItem } from '../../components/DocumentListItem';
 import { DraftListItem, draftTitle } from '../../components/DraftListItem';
 import { Icon } from '../../components/Icon';
@@ -35,7 +38,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const bottomInset = useTabBarInset();
   const {
-    profile,
     documents,
     folders,
     searchResults,
@@ -45,7 +47,7 @@ export default function HomeScreen() {
   } = useApp();
   const { reset, addPage, restoreDraft, draftId: activeDraftId } = useScan();
   const startScan = useStartScan();
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
 
   const [query, setQuery] = useState('');
   const deleteWithUndo = useDeleteWithUndo();
@@ -97,7 +99,6 @@ export default function HomeScreen() {
   const isSearching = debouncedQuery.trim().length >= 2;
   const recentScans = documents.slice(0, 6);
   const results = searchResults ?? [];
-  const firstName = profile?.name?.split(' ')[0];
 
   const importPhoto = async () => {
     if (importing) return;
@@ -145,53 +146,64 @@ export default function HomeScreen() {
     />
   );
 
+  const docCount = documents.length;
+
   return (
     <View className="flex-1 bg-background">
       <LoadingOverlay visible={importing} message="Finding page edges…" />
+
+
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: bottomInset, paddingHorizontal: 20 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header: greeting, with help and account at the trailing edge. */}
+        {/* Header */}
         <View className="flex-row items-center">
           <View className="flex-1">
-            <Text className="font-inter text-[15px] text-on-surface-variant">{greeting}</Text>
-            <Text
-              className="font-inter-semibold text-[28px] leading-[34px] tracking-[-0.6px] text-on-surface"
-              numberOfLines={1}
-            >
-              {firstName ?? 'ScanKaro'}
+            <Text className="font-inter-medium text-[14px] text-on-surface-variant">{greeting}</Text>
+            <Text className="font-inter-bold text-[32px] leading-[38px] tracking-[-1px] text-on-surface" numberOfLines={1}>
+              ScanKaro
             </Text>
           </View>
           <Pressable
             onPress={showHelp}
             accessibilityLabel="How to scan"
-            className="mr-2 h-11 w-11 items-center justify-center rounded-full active:bg-surface-container"
+            className="mr-1 h-11 w-11 items-center justify-center rounded-full active:bg-surface-container"
           >
-            <Icon name="help-outline" size={24} className="text-on-surface-variant" />
+            <Icon name="help-outline" size={22} className="text-on-surface" />
           </Pressable>
           <Pressable
             onPress={() => router.push('/(tabs)/settings')}
-            accessibilityLabel="Account and settings"
-            className="active:opacity-70"
+            accessibilityLabel="Settings"
+            className="h-11 w-11 items-center justify-center rounded-full border border-outline-variant/60 bg-surface-container-lowest active:opacity-70"
           >
-            {profile?.avatar ? (
-              <Image source={{ uri: profile.avatar }} className="h-11 w-11 rounded-full" />
-            ) : (
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-surface-container">
-                <Text className="font-inter-bold text-[17px] text-on-surface">
-                  {(firstName ?? 'S').charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <Icon name="settings" size={21} className="text-on-surface" />
           </Pressable>
         </View>
 
-        {/* Search: primary position, scoped to documents. */}
-        <View className="mt-5">
-          <SearchField value={query} onChangeText={setQuery} placeholder="Search documents and text" />
+        {/* Search (glass) */}
+        <View className="mt-5 h-[50px] flex-row items-center rounded-2xl border border-outline-variant/50 bg-surface-container-lowest px-4">
+          <Icon name="search" size={21} className="text-on-surface-variant" />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search documents and text"
+            placeholderTextColor={colors['on-surface-variant']}
+            returnKeyType="search"
+            className="ml-2.5 flex-1 py-0 font-inter text-[16px] text-on-surface"
+          />
+          {query.length > 0 ? (
+            <Pressable
+              onPress={() => setQuery('')}
+              accessibilityLabel="Clear search"
+              hitSlop={10}
+              className="h-7 w-7 items-center justify-center rounded-full bg-on-surface/10"
+            >
+              <Icon name="close" size={14} className="text-on-surface-variant" />
+            </Pressable>
+          ) : null}
         </View>
 
         {isSearching ? (
@@ -207,50 +219,60 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            {/* One primary action, one secondary. */}
-            <View className="mt-5 flex-row gap-3">
-              <Pressable
-                onPress={() => startScan()}
-                accessibilityRole="button"
-                className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-on-surface active:opacity-85"
-              >
-                <Icon name="document-scanner" size={22} className="text-surface" />
-                <Text className="font-inter-semibold text-[16px] text-surface">Scan</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void importPhoto()}
-                accessibilityRole="button"
-                className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-full border border-outline-variant active:bg-surface-container"
-              >
-                <Icon name="add-photo-alternate" size={22} className="text-on-surface" />
-                <Text className="font-inter-semibold text-[16px] text-on-surface">Import</Text>
-              </Pressable>
+            {/* Hero: scan (glass panel, ink primary button) */}
+            <View className="mt-5 rounded-[26px] border border-outline-variant/50 bg-surface-container-lowest p-5">
+              <View className="flex-row items-start">
+                <View className="flex-1 pr-3">
+                  <Text className="font-inter-bold text-[24px] leading-[29px] tracking-[-0.6px] text-on-surface">
+                    Scan a document
+                  </Text>
+                  <Text className="mt-1.5 font-inter text-[14px] leading-[20px] text-on-surface-variant">
+                    Edges found automatically. Clean it up, then save as PDF.
+                  </Text>
+                </View>
+                <BrandMark size={64} />
+              </View>
+              <View className="mt-5 flex-row gap-2.5">
+                <Pressable
+                  onPress={() => startScan()}
+                  accessibilityRole="button"
+                  className="h-[52px] flex-1 flex-row items-center justify-center gap-2 overflow-hidden rounded-full active:opacity-85"
+                  style={{ backgroundColor: '#17181D' }}
+                >
+                  <Icon name="document-scanner" size={21} className="text-[#ffffff]" />
+                  <Text className="font-inter-semibold text-[16px] text-[#ffffff]">Scan</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void importPhoto()}
+                  accessibilityRole="button"
+                  className="h-[52px] flex-1 flex-row items-center justify-center gap-2 rounded-full bg-surface-container active:opacity-80"
+                >
+                  <Icon name="add-photo-alternate" size={21} className="text-on-surface" />
+                  <Text className="font-inter-semibold text-[16px] text-on-surface">Import</Text>
+                </Pressable>
+              </View>
             </View>
 
-            {/* Shortcuts */}
-            <View className="mb-1 mt-7 flex-row items-center justify-between">
-              <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-on-surface">
-                Shortcuts
+            {/* Quick tools (glass tiles) */}
+            <View className="mb-2 mt-7 flex-row items-center justify-between">
+              <Text accessibilityRole="header" className="font-inter-bold text-[18px] text-on-surface">
+                Quick tools
               </Text>
-              <Pressable onPress={() => router.push('/(tabs)/tools')} hitSlop={8} className="h-11 justify-center">
+              <Pressable onPress={() => router.push('/(tabs)/tools')} hitSlop={8} className="h-11 flex-row items-center gap-0.5">
                 <Text className="font-inter-semibold text-[15px] text-on-surface-variant">All tools</Text>
+                <Icon name="chevron-right" size={20} className="text-on-surface-variant" />
               </Pressable>
             </View>
-            <View className="-mx-1 flex-row">
+            <View className="flex-row gap-2.5">
               {shortcuts.map((sc) => (
                 <Pressable
                   key={sc.key}
                   onPress={sc.onPress}
                   accessibilityRole="button"
                   accessibilityLabel={sc.title}
-                  className="w-1/4 items-center px-1 py-2 active:opacity-60"
+                  className="flex-1 items-center rounded-[20px] border border-outline-variant/50 bg-surface-container-lowest py-3.5 active:opacity-70"
                 >
-                  <View
-                    className="h-[52px] w-[52px] items-center justify-center rounded-full"
-                    style={{ backgroundColor: pastel(sc.color, isDark) }}
-                  >
-                    <Icon name={sc.icon} size={24} className="text-on-surface" />
-                  </View>
+                  <Icon name={sc.icon} size={24} className="text-on-surface" />
                   <Text className="mt-2 font-inter-medium text-[12.5px] text-on-surface" numberOfLines={1}>
                     {sc.title}
                   </Text>
@@ -258,19 +280,15 @@ export default function HomeScreen() {
               ))}
             </View>
 
-            {/* Drafts: scans started but not saved yet. Tap one to continue it. */}
+            {/* Drafts */}
             {drafts.length > 0 ? (
               <>
-                <View className="mb-2 mt-6 flex-row items-center justify-between">
-                  <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-on-surface">
+                <View className="mb-2 mt-7 flex-row items-center justify-between">
+                  <Text accessibilityRole="header" className="font-inter-bold text-[18px] text-on-surface">
                     Drafts
                   </Text>
                   {drafts.length > DRAFTS_PREVIEW ? (
-                    <Pressable
-                      onPress={() => setShowAllDrafts((v) => !v)}
-                      hitSlop={8}
-                      className="h-11 justify-center"
-                    >
+                    <Pressable onPress={() => setShowAllDrafts((v) => !v)} hitSlop={8} className="h-11 justify-center">
                       <Text className="font-inter-semibold text-[15px] text-on-surface-variant">
                         {showAllDrafts ? 'Show less' : 'Show all'}
                       </Text>
@@ -288,26 +306,29 @@ export default function HomeScreen() {
               </>
             ) : null}
 
-            {/* Recent documents: a list, since titles and dates are text. */}
-            <View className="mb-2 mt-6 flex-row items-center justify-between">
-              <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-on-surface">
+            {/* Recent (content layer: solid) */}
+            <View className="mb-2 mt-7 flex-row items-center justify-between">
+              <Text accessibilityRole="header" className="font-inter-bold text-[18px] text-on-surface">
                 Recent
               </Text>
-              {documents.length > 0 ? (
-                <Pressable onPress={() => router.push('/(tabs)/folders')} hitSlop={8} className="h-11 justify-center">
+              {docCount > 0 ? (
+                <Pressable onPress={() => router.push('/(tabs)/folders')} hitSlop={8} className="h-11 flex-row items-center gap-0.5">
                   <Text className="font-inter-semibold text-[15px] text-on-surface-variant">See all</Text>
+                  <Icon name="chevron-right" size={20} className="text-on-surface-variant" />
                 </Pressable>
               ) : null}
             </View>
             {recentScans.length === 0 ? (
-              <View className="items-center rounded-[24px] bg-surface-container-lowest px-6 py-8">
-                <View className="h-14 w-14 items-center justify-center rounded-full bg-surface-container">
-                  <Icon name="document-scanner" size={26} className="text-on-surface" />
+              <View className="flex-row items-center gap-4 rounded-[24px] bg-surface-container-lowest p-4">
+                <View className="h-12 w-12 items-center justify-center rounded-2xl bg-surface-container">
+                  <Icon name="description" size={24} className="text-on-surface-variant" />
                 </View>
-                <Text className="mt-3 font-inter-semibold text-[17px] text-on-surface">No documents yet</Text>
-                <Text className="mt-1 text-center font-inter text-[14px] leading-[20px] text-on-surface-variant">
-                  Scan a page or import a photo to get started.
-                </Text>
+                <View className="flex-1">
+                  <Text className="font-inter-semibold text-[16px] text-on-surface">No documents yet</Text>
+                  <Text className="mt-0.5 font-inter text-[13px] leading-[18px] text-on-surface-variant">
+                    Your scans and imports will appear here.
+                  </Text>
+                </View>
               </View>
             ) : (
               recentScans.map(renderDoc)
@@ -315,7 +336,7 @@ export default function HomeScreen() {
 
             {folders.length > 0 ? (
               <>
-                <Text accessibilityRole="header" className="mb-3 mt-6 font-inter-semibold text-[17px] text-on-surface">
+                <Text accessibilityRole="header" className="mb-3 mt-7 font-inter-bold text-[18px] text-on-surface">
                   Folders
                 </Text>
                 <ScrollView
@@ -328,7 +349,7 @@ export default function HomeScreen() {
                     <Pressable
                       key={folder.id}
                       onPress={() => router.push(`/folder/${folder.id}`)}
-                      className="h-11 flex-row items-center gap-2 rounded-full bg-surface-container px-4 active:opacity-70"
+                      className="h-11 flex-row items-center gap-2 rounded-full bg-surface-container-lowest px-4 active:opacity-70"
                     >
                       <Icon name="folder" size={18} className="text-on-surface-variant" />
                       <Text className="font-inter-semibold text-[14px] text-on-surface">{folder.title}</Text>
@@ -344,3 +365,4 @@ export default function HomeScreen() {
     </View>
   );
 }
+

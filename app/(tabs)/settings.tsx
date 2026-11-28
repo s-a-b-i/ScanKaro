@@ -10,7 +10,6 @@ import { SectionHeader, SettingsGroup } from '../../components/settings/Settings
 import { Card, EmptyState, LargeHeader, useTabBarInset } from '../../components/ui';
 import { appConfig } from '../../constants/config';
 import { useApp } from '../../context/AppProvider';
-import { authService } from '../../services';
 import { libraryBytes } from '../../services/local/library';
 import { MOCK_SETTINGS } from '../../services/mock/data';
 import { clearTempFiles, formatBytes, tempBytes } from '../../utils/tempFiles';
@@ -35,31 +34,14 @@ export default function SettingsScreen() {
   const toast = useToast();
   const bottomInset = useTabBarInset();
   const {
-    profile,
     settings,
     loading,
-    authReady,
     updateSettings,
-    signOut,
-    deleteAccount,
     refreshDocuments,
     refreshFolders,
     documents,
   } = useApp();
   const prefs = settings ?? MOCK_SETTINGS;
-
-  const handleLogout = () => {
-    Alert.alert('Log out?', 'Your documents stay on this phone and you can keep using ScanKaro.', [
-      { text: 'Stay signed in', style: 'cancel' },
-      {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: async () => {
-          await signOut();
-        },
-      },
-    ]);
-  };
 
   const [storage, setStorage] = useState<{ library: number; temp: number } | null>(null);
   const { refreshLock } = useAppLock();
@@ -178,47 +160,7 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const handleChangePassword = () => {
-    if (!profile?.email) return;
-    Alert.alert('Change password', `We will email a password reset link to ${profile.email}.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Send link',
-        onPress: async () => {
-          try {
-            await authService.resetPassword(profile.email);
-            Alert.alert('Check your email', 'Follow the link in the email to set a new password.');
-          } catch (error) {
-            Alert.alert('Could not send email', error instanceof Error ? error.message : 'Please try again.');
-          }
-        },
-      },
-    ]);
-  };
-
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete account?',
-      'Your account and every document saved on this device will be permanently deleted. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteAccount();
-              router.replace('/(tabs)');
-            } catch (error) {
-              Alert.alert('Could not delete account', error instanceof Error ? error.message : 'Please try again.');
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  if (!authReady || loading) {
+  if (loading) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator size="large" color="#8e8e93" />
@@ -234,60 +176,7 @@ export default function SettingsScreen() {
       >
         <LargeHeader title="Settings" />
 
-        {/* Profile card. Signed out: the optional way in to an account. */}
-        <View className="mb-8 px-margin-mobile">
-          {!profile ? (
-            <Card
-              onPress={() => router.push('/login')}
-              className="flex-row items-center gap-4 p-4"
-            >
-              <View className="h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                <Icon name="person-outline" size={30} className="text-primary" />
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="font-inter-bold text-title-md text-on-surface" numberOfLines={1}>
-                  Sign in or create account
-                </Text>
-                <Text className="font-inter text-body-sm text-on-surface-variant" numberOfLines={2}>
-                  Optional. ScanKaro works fully without one.
-                </Text>
-              </View>
-              <Icon name="chevron-right" size={24} className="text-on-surface-variant/40" />
-            </Card>
-          ) : (
-          <Card onPress={() => router.push('/account')} className="flex-row items-center gap-4 p-4">
-            {profile.avatar ? (
-              <Image source={{ uri: profile.avatar }} className="h-16 w-16 rounded-full" />
-            ) : (
-              <View className="h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                <Text className="font-inter-bold text-[24px] text-primary">{profile.name.charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
-            <View className="min-w-0 flex-1">
-              <Text className="font-inter-bold text-title-md text-on-surface" numberOfLines={1}>
-                {profile.name}
-              </Text>
-              <Text className="font-inter text-body-sm text-on-surface-variant" numberOfLines={1}>
-                {profile.email}
-              </Text>
-            </View>
-            <Icon name="chevron-right" size={24} className="text-on-surface-variant/40" />
-          </Card>
-          )}
-        </View>
-
-        {profile ? (
-          <>
-            <SectionHeader title="Account" />
-            <SettingsGroup>
-              <SettingRow icon="person" color="blue" label="Personal Information" onPress={() => router.push('/account')} />
-              <SettingDivider />
-              <SettingRow icon="lock-reset" color="gray" label="Change Password" onPress={handleChangePassword} />
-            </SettingsGroup>
-          </>
-        ) : null}
-
-        <View className={profile ? 'mt-7' : ''}>
+        <View>
           <SectionHeader title="Preferences" />
           <SettingsGroup>
             <View className="px-4 py-3.5">
@@ -432,23 +321,6 @@ export default function SettingsScreen() {
             />
           </SettingsGroup>
         </View>
-
-        {profile ? (
-          <View className="mt-7">
-            <SettingsGroup>
-              <SettingRow icon="logout" label="Log Out" destructive showChevron={false} onPress={handleLogout} />
-              <SettingDivider />
-              <SettingRow
-                icon="delete-forever"
-                label="Delete Account"
-                subtitle="Removes your account and every document on this device"
-                destructive
-                showChevron={false}
-                onPress={handleDeleteAccount}
-              />
-            </SettingsGroup>
-          </View>
-        ) : null}
 
         <Text className="mt-6 text-center font-inter text-label-md text-on-surface-variant">
           ScanKaro v{appConfig.app.version}

@@ -4,8 +4,8 @@
  */
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -27,37 +27,49 @@ export default function IdPhotoScreen() {
   const [size, setSize] = useState<IdPhotoSize>(ID_PHOTO_SIZES[0]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  // From the passport camera: an already-framed photo and its size.
+  const params = useLocalSearchParams<{ photo?: string; size?: string }>();
 
-  const pick = async (source: 'camera' | 'library') => {
-    const permission =
-      source === 'camera'
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', `Allow ${source === 'camera' ? 'camera' : 'photo'} access to make an ID photo.`);
-      return;
-    }
-    const options: ImagePicker.ImagePickerOptions = {
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [size.widthMm, size.heightMm],
-      quality: 1,
-      cameraType: ImagePicker.CameraType.front,
-    };
-    const picked =
-      source === 'camera' ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
-    if (picked.canceled || !picked.assets[0]) return;
-
+  const process = async (uri: string, chosen: IdPhotoSize) => {
     setBusy(true);
     try {
-      const photo = await makeIdPhoto(picked.assets[0].uri, size);
-      const sheet = await makeIdSheet(photo.uri, size);
-      setResult({ photo: photo.uri, sheet: sheet.image.uri, copies: sheet.copies, size });
+      const photo = await makeIdPhoto(uri, chosen);
+      const sheet = await makeIdSheet(photo.uri, chosen);
+      setResult({ photo: photo.uri, sheet: sheet.image.uri, copies: sheet.copies, size: chosen });
     } catch (e) {
       Alert.alert('Could not make the photo', e instanceof Error ? e.message : 'Please try again.');
     } finally {
       setBusy(false);
     }
+  };
+
+  useEffect(() => {
+    if (!params.photo) return;
+    const chosen = ID_PHOTO_SIZES.find((s) => s.key === params.size) ?? ID_PHOTO_SIZES[0];
+    setSize(chosen);
+    void process(params.photo, chosen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.photo]);
+
+  const pick = async (source: 'camera' | 'library') => {
+    if (source === 'camera') {
+      // Our own camera, with the passport frame and face guide.
+      router.push({ pathname: '/passport-camera', params: { size: size.key } });
+      return;
+    }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to make an ID photo.');
+      return;
+    }
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [size.widthMm, size.heightMm],
+      quality: 1,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    await process(picked.assets[0].uri, size);
   };
 
   const share = async () => {

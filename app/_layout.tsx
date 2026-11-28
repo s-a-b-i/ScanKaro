@@ -10,6 +10,8 @@ import {
   InterTight_800ExtraBold,
   useFonts,
 } from '@expo-google-fonts/inter-tight';
+import { PlayfairDisplay_700Bold } from '@expo-google-fonts/playfair-display';
+import { BarlowCondensed_600SemiBold } from '@expo-google-fonts/barlow-condensed';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
@@ -38,6 +40,8 @@ export default function RootLayout() {
     InterTight_600SemiBold,
     InterTight_700Bold,
     InterTight_800ExtraBold,
+    PlayfairDisplay_700Bold,
+    BarlowCondensed_600SemiBold,
   });
 
   // No scan can be in progress at launch: drop leftover working files from earlier sessions.
@@ -68,7 +72,6 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="onboarding" />
-        <Stack.Screen name="login" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="crop" options={{ presentation: 'fullScreenModal' }} />
@@ -87,8 +90,10 @@ export default function RootLayout() {
         <Stack.Screen name="restore-photo" />
         <Stack.Screen name="translate" />
         <Stack.Screen name="locker" />
+        <Stack.Screen name="passport-camera" options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="card-maker" />
+        <Stack.Screen name="card-details" />
         <Stack.Screen name="document/[id]" />
-        <Stack.Screen name="account" />
         <Stack.Screen name="folder/[id]" />
         <Stack.Screen name="manage-pages/[id]" />
         <Stack.Screen name="annotate/[id]" options={{ presentation: 'fullScreenModal' }} />
