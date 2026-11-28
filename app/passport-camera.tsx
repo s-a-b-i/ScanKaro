@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GlassBackground } from '../components/Glass';
 import { Icon } from '../components/Icon';
-import { cropRegion, ID_PHOTO_SIZES } from '../utils/idPhoto';
+import { ID_PHOTO_SIZES } from '../utils/idPhoto';
 import { goBackOr } from '../utils/navigation';
 
 export default function PassportCameraScreen() {
@@ -41,17 +41,22 @@ export default function PassportCameraScreen() {
     try {
       const photo = await camera.current.takePictureAsync({ quality: 1, skipProcessing: false });
       if (!photo) throw new Error('No photo was taken.');
-      // The preview fills the screen (cover); map the frame to photo pixels.
+      // The preview fills the screen (cover); map the frame to photo pixels. The whole photo
+      // goes on so the maker can frame the head itself (and see the shoulders for the suit);
+      // the frame is only used if no face is found.
       const scale = Math.max(screenW / photo.width, screenH / photo.height);
       const offsetX = (photo.width * scale - screenW) / 2;
       const offsetY = (photo.height * scale - screenH) / 2;
-      const cropped = await cropRegion(photo.uri, {
+      const frame = {
         x: (frameX + offsetX) / scale,
         y: (frameY + offsetY) / scale,
         width: frameW / scale,
         height: frameH / scale,
+      };
+      router.replace({
+        pathname: '/id-photo',
+        params: { photo: photo.uri, size: size.key, frame: JSON.stringify(frame) },
       });
-      router.replace({ pathname: '/id-photo', params: { photo: cropped.uri, size: size.key } });
     } catch (e) {
       Alert.alert('Could not take the photo', e instanceof Error ? e.message : 'Please try again.');
       setBusy(false);
@@ -166,7 +171,7 @@ export default function PassportCameraScreen() {
         <View className="mb-5 overflow-hidden rounded-full px-4 py-2.5">
           <GlassBackground radius={20} variant="media" />
           <Text className="font-inter-medium text-[13px] text-white">
-            Face in the oval · plain light wall · even light
+            Face in the oval · shoulders in view · even light
           </Text>
         </View>
         <Pressable

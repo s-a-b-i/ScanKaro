@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.personsegmentation'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.personsegmentation"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // Cut-out: Subject Segmentation (Play services, best edges incl. hair and clothes),
+  // with the bundled Selfie Segmentation as a fallback while that model downloads.
+  implementation 'com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1'
+  implementation 'com.google.mlkit:segmentation-selfie:16.0.0-beta6'
+  // Face (eyes, chin) for framing, and body pose (shoulders) for fitting the suit.
+  implementation 'com.google.mlkit:face-detection:16.1.7'
+  implementation 'com.google.mlkit:pose-detection:18.0.0-beta5'
+}
